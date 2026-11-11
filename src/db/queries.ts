@@ -1,9 +1,21 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { billVisible, type Kind, type MonthInput, type Pct } from '@/src/lib/calc';
-import { addMonths, monthRange, today } from '@/src/lib/month';
+import { addMonths, currentMonth, monthOf, monthRange, today } from '@/src/lib/month';
 
 // Solo runAsync/getAllAsync/withTransactionAsync: withExclusiveTransactionAsync usa otra conexión
 // con foreign_keys OFF y no dispararía las cascadas.
+
+// BEGIN/COMMIT sobre una única conexión: dos transacciones solapadas se pisan (la 2ª BEGIN falla y hace ROLLBACK
+// de la 1ª). Se serializan en cola.
+let queue: Promise<unknown> = Promise.resolve();
+const tx = (db: SQLiteDatabase, fn: () => Promise<void>) => {
+  const p = queue.then(() => db.withTransactionAsync(fn));
+  queue = p.catch(() => {});
+  return p;
+};
+
+/** Fecha de un pago nuevo: hoy si cae en `month`, si no el día 1. */
+const paymentDate = (month: string) => (monthOf(today()) === month ? today() : `${month}-01`);
 
 export type Category = { id: number; name: string; kind: 'needs' | 'wants' };
 export type Income = { id: number; month: string; concept: string; budget: number; amount: number };
@@ -46,24 +58,31 @@ export const listCategories = (db: SQLiteDatabase) =>
 export const incomes = (db: SQLiteDatabase, month: string) =>
   db.getAllAsync<Income>('SELECT * FROM income WHERE month = ? ORDER BY id', month);
 
-/** Si el mes no tiene ingresos, crea Sueldo/Ingresos extra/Otros con el presupuesto del último mes anterior. */
+/**
+ * Meses futuros: nada. Si el mes (<= actual) no tiene ingresos, copia concepto+presupuesto (importe 0) del último
+ * mes anterior con ingresos; si no hay ninguno, crea Sueldo/Ingresos extra/Otros a 0. Ambas sentencias son
+ * idempotentes (NOT EXISTS) y van en una transacción serializada.
+ */
 export async function ensureIncomes(db: SQLiteDatabase, month: string): Promise<void> {
-  await db.withTransactionAsync(async () => {
-    const n = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM income WHERE month = ?', month);
-    if (n && n.n > 0) return;
-    for (const concept of ['Sueldo', 'Ingresos extra', 'Otros']) {
-      const prev = await db.getFirstAsync<{ budget: number }>(
-        'SELECT budget FROM income WHERE concept = ? AND month < ? ORDER BY month DESC, id DESC LIMIT 1',
-        concept,
-        month,
-      );
-      await db.runAsync(
-        'INSERT INTO income (month, concept, budget, amount) VALUES (?, ?, ?, 0)',
-        month,
-        concept,
-        prev?.budget ?? 0,
-      );
-    }
+  if (month > currentMonth()) return;
+  await tx(db, async () => {
+    await db.runAsync(
+      `INSERT INTO income (month, concept, budget, amount)
+       SELECT ?, concept, budget, 0 FROM income
+       WHERE month = (SELECT MAX(month) FROM income WHERE month < ?)
+         AND NOT EXISTS (SELECT 1 FROM income WHERE month = ?)
+       ORDER BY id`,
+      month,
+      month,
+      month,
+    );
+    await db.runAsync(
+      `INSERT INTO income (month, concept, budget, amount)
+       SELECT ?, c, 0, 0 FROM (SELECT 'Sueldo' AS c UNION ALL SELECT 'Ingresos extra' UNION ALL SELECT 'Otros')
+       WHERE NOT EXISTS (SELECT 1 FROM income WHERE month = ?)`,
+      month,
+      month,
+    );
   });
 }
 
@@ -94,37 +113,34 @@ export const addBill = (db: SQLiteDatabase, concept: string, kind: Kind, budget:
 export const updateBill = (db: SQLiteDatabase, id: number, concept: string, kind: Kind, budget: number) =>
   db.runAsync('UPDATE bill SET concept = ?, kind = ?, budget = ? WHERE id = ?', concept, kind, budget, id);
 
-/** "Dejar de repetir desde este mes": end_month = mes anterior; si queda antes del inicio y sin pagos, se borra. */
-export async function endBill(db: SQLiteDatabase, id: number, month: string): Promise<void> {
-  await db.withTransactionAsync(async () => {
+/**
+ * "Dejar de repetir desde este mes": borra los pagos de `month` en adelante y fija end_month = mes anterior
+ * (nunca lo alarga); si queda antes del inicio y sin pagos, se borra la factura.
+ */
+export const endBill = (db: SQLiteDatabase, id: number, month: string) =>
+  tx(db, async () => {
     const end = addMonths(month, -1);
-    const b = await db.getFirstAsync<{ start_month: string }>('SELECT start_month FROM bill WHERE id = ?', id);
-    if (!b) return;
-    const n = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM bill_payment WHERE bill_id = ?', id);
-    if (end < b.start_month && (n?.n ?? 0) === 0) await db.runAsync('DELETE FROM bill WHERE id = ?', id);
-    else await db.runAsync('UPDATE bill SET end_month = ? WHERE id = ?', end, id);
+    await db.runAsync('DELETE FROM bill_payment WHERE bill_id = ? AND month >= ?', id, month);
+    await db.runAsync('UPDATE bill SET end_month = MIN(COALESCE(end_month, ?), ?) WHERE id = ?', end, end, id);
+    await db.runAsync(
+      'DELETE FROM bill WHERE id = ? AND end_month < start_month AND NOT EXISTS (SELECT 1 FROM bill_payment WHERE bill_id = ?)',
+      id,
+      id,
+    );
   });
-}
 
 export const deleteBill = (db: SQLiteDatabase, id: number) => db.runAsync('DELETE FROM bill WHERE id = ?', id); // cascada a bill_payment
 
-/** Marca/desmarca pagada. Sin pago previo, lo crea con importe = presupuesto de la factura. */
-export async function setBillPaid(db: SQLiteDatabase, billId: number, month: string, paid: boolean): Promise<void> {
-  await db.withTransactionAsync(async () => {
-    const r = await db.runAsync('UPDATE bill_payment SET paid = ? WHERE bill_id = ? AND month = ?', paid ? 1 : 0, billId, month);
-    if (r.changes > 0) return;
-    const b = await db.getFirstAsync<{ budget: number }>('SELECT budget FROM bill WHERE id = ?', billId);
-    if (!b) return;
-    await db.runAsync(
-      'INSERT INTO bill_payment (bill_id, month, amount, date, paid) VALUES (?, ?, ?, ?, ?)',
-      billId,
-      month,
-      b.budget,
-      today(),
-      paid ? 1 : 0,
-    );
-  });
-}
+/** Marca/desmarca pagada. Sin pago previo, lo crea con importe = presupuesto de la factura (una sola sentencia). */
+export const setBillPaid = (db: SQLiteDatabase, billId: number, month: string, paid: boolean) =>
+  db.runAsync(
+    `INSERT INTO bill_payment (bill_id, month, amount, date, paid) SELECT id, ?, budget, ?, ? FROM bill WHERE id = ?
+     ON CONFLICT (bill_id, month) DO UPDATE SET paid = excluded.paid`,
+    month,
+    paymentDate(month),
+    paid ? 1 : 0,
+    billId,
+  );
 
 /** Upsert del importe real del mes; conserva `paid`. */
 export const setPaymentAmount = (db: SQLiteDatabase, billId: number, month: string, amount: number) =>
@@ -134,8 +150,12 @@ export const setPaymentAmount = (db: SQLiteDatabase, billId: number, month: stri
     billId,
     month,
     amount,
-    today(),
+    paymentDate(month),
   );
+
+/** Quita el pago de la factura en ese mes (deshace un check/importe accidental). */
+export const deletePayment = (db: SQLiteDatabase, billId: number, month: string) =>
+  db.runAsync('DELETE FROM bill_payment WHERE bill_id = ? AND month = ?', billId, month);
 
 // --- Gastos ---
 

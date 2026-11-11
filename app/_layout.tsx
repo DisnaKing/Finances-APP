@@ -18,7 +18,7 @@ export default function RootLayout() {
           <ThemeProvider value={dark ? navDarkTheme : navLightTheme}>
             <StatusBar style={dark ? 'light' : 'dark'} />
             <Stack>
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Inicio' }} />
               <Stack.Screen name="gasto" options={{ presentation: 'modal', title: 'Gasto' }} />
               <Stack.Screen name="deudas" options={{ title: 'Deudas' }} />
               <Stack.Screen name="anual" options={{ title: 'Anual' }} />

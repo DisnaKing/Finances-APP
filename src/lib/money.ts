@@ -78,3 +78,10 @@ export function centsToInput(cents: number): string {
   const abs = Math.abs(Math.round(cents));
   return `${cents < 0 && abs > 0 ? '-' : ''}${Math.floor(abs / 100)},${String(abs % 100).padStart(2, '0')}`;
 }
+
+/** Inserta `ins` sustituyendo la selección [start,end) de `text`; `pos` = posición del cursor tras lo insertado. */
+export function insertAt(text: string, ins: string, start: number, end: number): { text: string; pos: number } {
+  const a = Math.max(0, Math.min(start, end, text.length));
+  const b = Math.min(text.length, Math.max(start, end));
+  return { text: text.slice(0, a) + ins + text.slice(b), pos: a + ins.length };
+}

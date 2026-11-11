@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Chip, Dialog, HelperText, Portal, Text, TextInput, useTheme } from 'react-native-paper';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useMonth } from '@/src/components/MonthContext';
+import { useGuard } from '@/src/components/useGuard';
 import * as q from '@/src/db/queries';
-import { centsToInput, formatMoney, parseAmount } from '@/src/lib/money';
+import { centsToInput, formatMoney, insertAt, parseAmount } from '@/src/lib/money';
 import { monthOf, today } from '@/src/lib/month';
 
 const OPS = [
@@ -37,38 +38,61 @@ export default function Gasto() {
   // Fecha por defecto: hoy si cae en el mes seleccionado, si no el día 1 de ese mes.
   const [date, setDate] = useState(() => (monthOf(today()) === month ? today() : `${month}-01`));
   const [askDelete, setAskDelete] = useState(false);
+  const [busy, run] = useGuard();
+  // Operadores: cursor/selección actuales del campo Importe y selección forzada tras insertar (se limpia al aplicarse).
+  const amountRef = useRef<{ focus(): void }>(null);
+  const selRef = useRef({ start: 0, end: 0 });
+  const [forceSel, setForceSel] = useState<{ start: number; end: number } | undefined>();
 
   useEffect(() => {
     (async () => {
-      const [cs, st] = await Promise.all([q.listCategories(db), q.getSettings(db)]);
-      setCats(cs);
-      setCur(st.currency);
-      if (editId !== null) {
-        const e = await q.getExpense(db, editId);
-        if (e) {
-          setAmount(centsToInput(e.amount));
-          setConcept(e.concept);
-          setCatId(e.category_id);
-          setDate(e.date);
+      try {
+        const [cs, st] = await Promise.all([q.listCategories(db), q.getSettings(db)]);
+        setCats(cs);
+        setCur(st.currency);
+        if (editId !== null) {
+          const e = await q.getExpense(db, editId);
+          if (e) {
+            const t = centsToInput(e.amount);
+            selRef.current = { start: t.length, end: t.length };
+            setAmount(t);
+            setConcept(e.concept);
+            setCatId(e.category_id);
+            setDate(e.date);
+          }
         }
+      } catch (e) {
+        console.error(e);
       }
     })();
   }, [db, editId]);
 
   const parsed = amount.trim() === '' ? null : parseAmount(amount);
   const dateOk = validDate(date);
-  const canSave = parsed !== null && parsed > 0 && dateOk;
+  const canSave = parsed !== null && parsed > 0 && dateOk && !busy;
 
-  const save = async () => {
+  // keepLocked: la pantalla se cierra al terminar; si falla, se desbloquea.
+  const save = () => {
     if (!canSave) return;
-    const name = concept.trim() || cats.find((k) => k.id === catId)?.name || 'Gasto';
-    if (editId !== null) await q.updateExpense(db, editId, date, name, parsed, catId);
-    else await q.addExpense(db, date, name, parsed, catId);
-    router.back();
+    return run(async () => {
+      const name = concept.trim() || cats.find((k) => k.id === catId)?.name || 'Gasto';
+      if (editId !== null) await q.updateExpense(db, editId, date, name, parsed, catId);
+      else await q.addExpense(db, date, name, parsed, catId);
+      router.back();
+    }, true);
   };
-  const del = async () => {
-    if (editId !== null) await q.deleteExpense(db, editId);
-    router.back();
+  const del = () =>
+    run(async () => {
+      if (editId !== null) await q.deleteExpense(db, editId);
+      router.back();
+    }, true);
+  const addOp = (ch: string) => {
+    const { start, end } = selRef.current;
+    const r = insertAt(amount, ch, start, end);
+    selRef.current = { start: r.pos, end: r.pos };
+    setForceSel({ start: r.pos, end: r.pos });
+    setAmount(r.text);
+    amountRef.current?.focus();
   };
   const pickDate = () =>
     DateTimePickerAndroid.open({
@@ -76,23 +100,45 @@ export default function Gasto() {
       mode: 'date',
       onChange: (_e, d) => d && setDate(iso(d)),
     });
-  const yesterday = iso(new Date(Date.now() - 86400000));
+  const yesterday = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return iso(d);
+  })();
 
   return (
     <View style={[styles.flex, { backgroundColor: c.background }]}>
+      <Stack.Screen options={{ headerRight: () => <Button onPress={save} disabled={!canSave}>Guardar</Button> }} />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <TextInput
           mode="outlined"
           label="Importe"
+          ref={amountRef as never} // el tipo de ref de Paper exige RN+Paper a la vez; solo usamos focus()
           value={amount}
-          onChangeText={setAmount}
+          onChangeText={(t) => {
+            // Posición desconocida tras teclear (web no emite selectionchange al escribir): addOp añade al final
+            // salvo que llegue un onSelectionChange posterior.
+            selRef.current = { start: t.length, end: t.length };
+            setForceSel(undefined);
+            setAmount(t);
+          }}
+          selection={forceSel}
+          onSelectionChange={(e) => {
+            const { start, end } = e.nativeEvent.selection;
+            selRef.current = { start, end };
+            if (forceSel && forceSel.start === start && forceSel.end === end) setForceSel(undefined);
+          }}
           autoFocus
-          keyboardType="numbers-and-punctuation"
+          keyboardType="decimal-pad"
+          autoCorrect={false}
+          autoCapitalize="none"
+          returnKeyType="done"
+          onSubmitEditing={save}
           error={amount.trim() !== '' && parsed === null}
         />
         <View style={styles.ops}>
           {OPS.map(([label, ch]) => (
-            <Button key={ch} mode="outlined" compact onPress={() => setAmount((a) => a + ch)}>
+            <Button key={ch} mode="outlined" compact onPress={() => addOp(ch)}>
               {label}
             </Button>
           ))}
@@ -129,7 +175,7 @@ export default function Gasto() {
 
         <Button mode="contained" onPress={save} disabled={!canSave} style={styles.label}>Guardar</Button>
         {editId !== null && (
-          <Button textColor={c.error} onPress={() => setAskDelete(true)} style={styles.label}>Borrar</Button>
+          <Button textColor={c.error} onPress={() => setAskDelete(true)} disabled={busy} style={styles.label}>Borrar</Button>
         )}
       </ScrollView>
 
@@ -138,7 +184,7 @@ export default function Gasto() {
           <Dialog.Content><Text variant="bodyMedium">¿Borrar este gasto?</Text></Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setAskDelete(false)}>Cancelar</Button>
-            <Button textColor={c.error} onPress={del}>Borrar</Button>
+            <Button textColor={c.error} onPress={del} disabled={busy}>Borrar</Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>

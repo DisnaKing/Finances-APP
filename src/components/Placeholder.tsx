@@ -10,7 +10,7 @@ export function Placeholder({ fab = true }: { fab?: boolean }) {
       <Text variant="titleMedium" style={{ color: colors.onSurfaceVariant }}>
         Próximamente
       </Text>
-      {fab && <FAB icon="plus" style={styles.fab} onPress={() => router.push('/gasto')} />}
+      {fab && <FAB icon="plus" style={styles.fab} onPress={() => router.navigate('/gasto')} />}
     </View>
   );
 }

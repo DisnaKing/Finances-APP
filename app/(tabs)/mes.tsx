@@ -18,6 +18,8 @@ import { router, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useMonth } from '@/src/components/MonthContext';
 import { MonthSelector } from '@/src/components/MonthSelector';
+import { useGuard } from '@/src/components/useGuard';
+import { useKeyboardHeight } from '@/src/components/useKeyboardHeight';
 import * as q from '@/src/db/queries';
 import type { Bill, Expense, Income } from '@/src/db/queries';
 import type { Kind } from '@/src/lib/calc';
@@ -43,7 +45,9 @@ function AmountField(p: { label: string; value: string; onChange: (v: string) =>
         value={p.value}
         onChangeText={p.onChange}
         error={bad}
-        keyboardType="numbers-and-punctuation"
+        keyboardType="decimal-pad"
+        autoCorrect={false}
+        autoCapitalize="none"
       />
       <HelperText type="error" visible={bad}>Importe no válido</HelperText>
     </View>
@@ -57,19 +61,25 @@ function IncomeDialog({ inc, month, onClose }: { inc: Income | null; month: stri
   const [amount, setAmount] = useState(inc ? centsToInput(inc.amount) : '');
   const b = parse(budget);
   const a = parse(amount);
-  const ok = concept.trim() !== '' && b !== null && a !== null;
-  const save = async () => {
+  const [busy, run] = useGuard();
+  const kb = useKeyboardHeight();
+  const ok = concept.trim() !== '' && b !== null && a !== null && !busy;
+  // keepLocked: el diálogo se cierra (desmonta) al terminar bien.
+  const save = () => {
     if (!ok) return;
-    if (inc) await q.updateIncome(db, inc.id, concept.trim(), b, a);
-    else await q.addIncome(db, month, concept.trim(), b, a);
-    onClose(true);
+    return run(async () => {
+      if (inc) await q.updateIncome(db, inc.id, concept.trim(), b, a);
+      else await q.addIncome(db, month, concept.trim(), b, a);
+      onClose(true);
+    }, true);
   };
-  const del = async () => {
-    if (inc) await q.deleteIncome(db, inc.id);
-    onClose(true);
-  };
+  const del = () =>
+    run(async () => {
+      if (inc) await q.deleteIncome(db, inc.id);
+      onClose(true);
+    }, true);
   return (
-    <Dialog visible onDismiss={() => onClose(false)}>
+    <Dialog visible onDismiss={() => onClose(false)} style={{ marginBottom: kb }}>
       <Dialog.Title>{inc ? 'Editar ingreso' : 'Añadir ingreso'}</Dialog.Title>
       <Dialog.Content>
         <TextInput mode="outlined" dense label="Concepto" value={concept} onChangeText={setConcept} />
@@ -77,7 +87,7 @@ function IncomeDialog({ inc, month, onClose }: { inc: Income | null; month: stri
         <AmountField label="Importe" value={amount} onChange={setAmount} />
       </Dialog.Content>
       <Dialog.Actions>
-        {inc && <Button onPress={del}>Borrar</Button>}
+        {inc && <Button onPress={del} disabled={busy}>Borrar</Button>}
         <Button onPress={() => onClose(false)}>Cancelar</Button>
         <Button onPress={save} disabled={!ok}>Guardar</Button>
       </Dialog.Actions>
@@ -101,19 +111,28 @@ function BillDialog(p: {
   const b = parse(budget);
   const setAmt = amount.trim() !== '' && amount !== initAmount; // solo si el usuario lo ha tocado
   const am = setAmt ? parseAmount(amount) : 0;
-  const ok = concept.trim() !== '' && b !== null && am !== null;
-  const save = async () => {
+  const [busy, run] = useGuard();
+  const kb = useKeyboardHeight();
+  const ok = concept.trim() !== '' && b !== null && am !== null && !busy;
+  const save = () => {
     if (!ok) return;
-    if (bill) {
-      await q.updateBill(db, bill.id, concept.trim(), kind, b);
-      if (setAmt) await q.setPaymentAmount(db, bill.id, month, am!);
-    } else {
-      await q.addBill(db, concept.trim(), kind, b, month);
-    }
-    p.onClose(true);
+    return run(async () => {
+      if (bill) {
+        await q.updateBill(db, bill.id, concept.trim(), kind, b);
+        if (setAmt) await q.setPaymentAmount(db, bill.id, month, am!);
+      } else {
+        await q.addBill(db, concept.trim(), kind, b, month);
+      }
+      p.onClose(true);
+    }, true);
   };
+  const clearPayment = () =>
+    run(async () => {
+      if (bill) await q.deletePayment(db, bill.id, month);
+      p.onClose(true);
+    }, true);
   return (
-    <Dialog visible onDismiss={() => p.onClose(false)}>
+    <Dialog visible onDismiss={() => p.onClose(false)} style={{ marginBottom: kb }}>
       <Dialog.Title>{bill ? 'Factura' : 'Añadir factura'}</Dialog.Title>
       <Dialog.ScrollArea>
         <ScrollView contentContainerStyle={styles.dlgBody}>
@@ -128,7 +147,17 @@ function BillDialog(p: {
           <AmountField label="Presupuesto" value={budget} onChange={setBudget} />
           {bill && (
             <>
-              <Button onPress={() => p.onConfirm(`¿Dejar de repetir "${bill.concept}" desde este mes?`, () => q.endBill(db, bill.id, month))}>
+              {bill.payment_amount !== null && (
+                <Button onPress={clearPayment} disabled={busy}>Quitar pago de este mes</Button>
+              )}
+              <Button
+                onPress={() =>
+                  p.onConfirm(
+                    `¿Dejar de repetir "${bill.concept}" desde este mes? Se borran los pagos de este mes y posteriores.`,
+                    () => q.endBill(db, bill.id, month),
+                  )
+                }
+              >
                 Dejar de repetir desde este mes
               </Button>
               <Button onPress={() => p.onConfirm(`¿Borrar la factura "${bill.concept}" y todos sus pagos?`, () => q.deleteBill(db, bill.id))}>
@@ -141,6 +170,31 @@ function BillDialog(p: {
       <Dialog.Actions>
         <Button onPress={() => p.onClose(false)}>Cancelar</Button>
         <Button onPress={save} disabled={!ok}>Guardar</Button>
+      </Dialog.Actions>
+    </Dialog>
+  );
+}
+
+function ConfirmDialog({ msg, ok, onClose }: { msg: string; ok: () => Promise<unknown>; onClose: (changed: boolean) => void }) {
+  const c = useTheme().colors;
+  const [busy, run] = useGuard();
+  return (
+    <Dialog visible onDismiss={() => onClose(false)}>
+      <Dialog.Content><Text variant="bodyMedium">{msg}</Text></Dialog.Content>
+      <Dialog.Actions>
+        <Button onPress={() => onClose(false)}>Cancelar</Button>
+        <Button
+          textColor={c.error}
+          disabled={busy}
+          onPress={() =>
+            run(async () => {
+              await ok();
+              onClose(true);
+            }, true)
+          }
+        >
+          Confirmar
+        </Button>
       </Dialog.Actions>
     </Dialog>
   );
@@ -159,13 +213,17 @@ export default function Mes() {
 
   const load = useCallback(async () => {
     const n = ++seq.current;
-    await q.ensureIncomes(db, month);
-    const [i, b, e, st] = await Promise.all([q.incomes(db, month), q.listBillsForMonth(db, month), q.listExpenses(db, month), q.getSettings(db)]);
-    if (n !== seq.current) return; // llegó otra carga más reciente
-    setIncs(i);
-    setBills(b);
-    setExps(e);
-    setCur(st.currency);
+    try {
+      await q.ensureIncomes(db, month);
+      const [i, b, e, st] = await Promise.all([q.incomes(db, month), q.listBillsForMonth(db, month), q.listExpenses(db, month), q.getSettings(db)]);
+      if (n !== seq.current) return; // llegó otra carga más reciente
+      setIncs(i);
+      setBills(b);
+      setExps(e);
+      setCur(st.currency);
+    } catch (err) {
+      console.error(err);
+    }
   }, [db, month]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -209,7 +267,11 @@ export default function Mes() {
               <Checkbox
                 status={b.paid ? 'checked' : 'unchecked'}
                 onPress={async () => {
-                  await q.setBillPaid(db, b.id, month, !b.paid);
+                  try {
+                    await q.setBillPaid(db, b.id, month, !b.paid);
+                  } catch (err) {
+                    console.error(err);
+                  }
                   load();
                 }}
               />
@@ -231,7 +293,7 @@ export default function Mes() {
         {exps.length === 0 && (
           <View style={styles.empty}>
             <Text variant="bodyMedium">No hay gastos este mes.</Text>
-            <Button onPress={() => router.push('/gasto')}>Añadir gasto</Button>
+            <Button onPress={() => router.navigate('/gasto')}>Añadir gasto</Button>
           </View>
         )}
         {exps.map((e) => (
@@ -254,17 +316,9 @@ export default function Mes() {
       <Portal>
         {dlg?.t === 'income' && <IncomeDialog inc={dlg.inc} month={month} onClose={close} />}
         {dlg?.t === 'bill' && <BillDialog bill={dlg.bill} month={month} onClose={close} onConfirm={confirm} />}
-        {dlg?.t === 'confirm' && (
-          <Dialog visible onDismiss={() => close(false)}>
-            <Dialog.Content><Text variant="bodyMedium">{dlg.msg}</Text></Dialog.Content>
-            <Dialog.Actions>
-              <Button onPress={() => close(false)}>Cancelar</Button>
-              <Button textColor={c.error} onPress={async () => { await dlg.ok(); close(true); }}>Confirmar</Button>
-            </Dialog.Actions>
-          </Dialog>
-        )}
+        {dlg?.t === 'confirm' && <ConfirmDialog msg={dlg.msg} ok={dlg.ok} onClose={close} />}
       </Portal>
-      <FAB icon="plus" style={styles.fab} onPress={() => router.push('/gasto')} />
+      <FAB icon="plus" style={styles.fab} onPress={() => router.navigate('/gasto')} />
     </View>
   );
 }

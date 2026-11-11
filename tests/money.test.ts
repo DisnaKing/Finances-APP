@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseAmount, formatMoney, centsToInput } from '../src/lib/money.ts';
+import { parseAmount, formatMoney, centsToInput, insertAt } from '../src/lib/money.ts';
 
 test('parseAmount válidos', () => {
   const cases: [string, number][] = [
@@ -44,4 +44,14 @@ test('centsToInput', () => {
   assert.equal(centsToInput(1299), '12,99');
   assert.equal(centsToInput(-500), '-5,00');
   assert.equal(parseAmount(centsToInput(123456)), 123456);
+});
+
+test('insertAt: cursor, selección y límites', () => {
+  assert.deepEqual(insertAt('12', '+', 2, 2), { text: '12+', pos: 3 });
+  assert.deepEqual(insertAt('12', '+', 1, 1), { text: '1+2', pos: 2 });
+  assert.deepEqual(insertAt('12', '+', 0, 0), { text: '+12', pos: 1 });
+  assert.deepEqual(insertAt('1234', '(', 1, 3), { text: '1(4', pos: 2 }); // reemplaza la selección
+  assert.deepEqual(insertAt('1234', '(', 3, 1), { text: '1(4', pos: 2 }); // selección invertida
+  assert.deepEqual(insertAt('', '(', 0, 0), { text: '(', pos: 1 });
+  assert.deepEqual(insertAt('12', '+', 9, 9), { text: '12+', pos: 3 }); // fuera de rango
 });

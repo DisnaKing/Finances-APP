@@ -5,7 +5,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { MonthSelector } from '@/src/components/MonthSelector';
 import { useMonth } from '@/src/components/MonthContext';
-import { getSettings, monthInput } from '@/src/db/queries';
+import { ensureIncomes, getSettings, monthInput } from '@/src/db/queries';
 import { monthSummary } from '@/src/lib/calc';
 import { formatMoney } from '@/src/lib/money';
 
@@ -36,10 +36,15 @@ export default function Inicio() {
     useCallback(() => {
       let live = true;
       (async () => {
-        const [input, st] = await Promise.all([monthInput(db, month), getSettings(db)]);
-        if (live) {
-          setS(monthSummary(input));
-          setCur(st.currency);
+        try {
+          await ensureIncomes(db, month);
+          const [input, st] = await Promise.all([monthInput(db, month), getSettings(db)]);
+          if (live) {
+            setS(monthSummary(input));
+            setCur(st.currency);
+          }
+        } catch (e) {
+          console.error(e);
         }
       })();
       return () => {
@@ -124,7 +129,7 @@ export default function Inicio() {
           </>
         )}
       </ScrollView>
-      <FAB icon="plus" style={styles.fab} onPress={() => router.push('/gasto')} />
+      <FAB icon="plus" style={styles.fab} onPress={() => router.navigate('/gasto')} />
     </View>
   );
 }

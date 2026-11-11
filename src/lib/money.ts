@@ -85,3 +85,11 @@ export function insertAt(text: string, ins: string, start: number, end: number):
   const b = Math.min(text.length, Math.max(start, end));
   return { text: text.slice(0, a) + ins + text.slice(b), pos: a + ins.length };
 }
+
+/** 0.083 → "+8,3 %" ; -0.0001 → "0,0 %" ; signed=false → sin "+" (p. ej. progreso). Redondea a 1 decimal. */
+export function formatPct(x: number, signed = true): string {
+  if (!Number.isFinite(x)) return '—';
+  const t = Math.round(Math.abs(x) * 1000); // décimas de %
+  const sign = t === 0 ? '' : x < 0 ? '-' : signed ? '+' : '';
+  return `${sign}${Math.floor(t / 10)},${t % 10} %`;
+}

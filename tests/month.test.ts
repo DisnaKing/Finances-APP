@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { today, currentMonth, addMonths, monthName, monthOf, monthRange } from '../src/lib/month.ts';
+import { today, currentMonth, addMonths, monthName, monthOf, monthRange, formatDate } from '../src/lib/month.ts';
 
 test('addMonths con cambio de año', () => {
   assert.equal(addMonths('2026-12', 1), '2027-01');
@@ -29,4 +29,8 @@ test('currentMonth formato', () => {
 test('today formato local', () => {
   assert.match(today(), /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/);
   assert.equal(today().slice(0, 7), currentMonth());
+});
+
+test('formatDate', () => {
+  assert.equal(formatDate('2026-05-09'), '09/05/2026');
 });

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { goalStats, investmentStats, investmentTotals } from '../src/lib/calc.ts';
+import { goalStats, investmentStats, investmentTotals, investmentValue } from '../src/lib/calc.ts';
 
 test('goalStats: caso normal', () => {
   const s = goalStats({ target: 100000, min_monthly: 30000, initial: 10000 }, 20000);
@@ -79,10 +79,26 @@ test('fixture Excel: totales de ahorro e inversión', { skip: !existsSync(FIXTUR
   const t = investmentTotals(
     d.investments.map((v: any) => ({
       contributed: investmentStats(v, sumBy(d.investment_register, 'asset', v.name)).contributed,
-      value: v.current_value,
+      // valorada a una fecha lejana: ninguna aportación posterior, el valor es el guardado
+      value: investmentValue({ current_value: v.current_value, value_date: '9999-12-31' }, 0, 0),
     })),
   );
   const typed = Object.values(EXCEL_TYPED).reduce((a, x) => a + x, 0);
   assert.ok(t.contributed + typed === e.inv_contributed, `inv_contributed diff=${t.contributed - e.inv_contributed}`);
   assert.ok(t.value === e.inv_value, `inv_value diff=${t.value - e.inv_value}`);
+});
+
+test('investmentValue: sin valorar = aportado', () => {
+  assert.equal(investmentValue({ current_value: 0, value_date: null }, 2500, 0), 2500);
+});
+
+test('investmentValue: valorada + aportación posterior', () => {
+  assert.equal(investmentValue({ current_value: 3000, value_date: '2026-05-10' }, 2000, 500), 3500);
+  const s = investmentStats({ initial: 1000, current_value: 3500 }, 1000);
+  assert.deepEqual(s, { contributed: 2000, gain: 1500, gainPct: 0.75 });
+});
+
+test('investmentValue: aportación el mismo día ya está en el valor', () => {
+  // contribAfter cuenta solo date > value_date; la del mismo día no se suma otra vez
+  assert.equal(investmentValue({ current_value: 3000, value_date: '2026-05-10' }, 2500, 0), 3000);
 });

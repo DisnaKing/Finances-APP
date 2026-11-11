@@ -129,7 +129,7 @@ export default function Inicio() {
           </>
         )}
       </ScrollView>
-      <FAB icon="plus" style={styles.fab} onPress={() => router.navigate('/gasto')} />
+      <FAB icon="plus" accessibilityLabel="Añadir gasto" style={styles.fab} onPress={() => router.navigate('/gasto')} />
     </View>
   );
 }

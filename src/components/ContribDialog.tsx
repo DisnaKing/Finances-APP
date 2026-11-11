@@ -3,6 +3,7 @@ import { ScrollView } from 'react-native';
 import { Button, Dialog } from 'react-native-paper';
 import { useSQLiteContext } from 'expo-sqlite';
 import { AmountField } from '@/src/components/AmountField';
+import { ConfirmDialog } from '@/src/components/ConfirmDialog';
 import { DateField, validDate } from '@/src/components/DateField';
 import { useGuard } from '@/src/components/useGuard';
 import { useKeyboardHeight } from '@/src/components/useKeyboardHeight';
@@ -24,6 +25,7 @@ export function ContribDialog(p: {
   const [amount, setAmount] = useState(c ? centsToInput(c.amount) : p.defaultAmount ? centsToInput(p.defaultAmount) : '');
   const [date, setDate] = useState(c?.date ?? today());
   const [busy, run] = useGuard();
+  const [askDel, setAskDel] = useState(false);
   const kb = useKeyboardHeight();
   const a = parseAmount(amount);
   const ok = a !== null && a > 0 && validDate(date) && !busy;
@@ -35,12 +37,8 @@ export function ContribDialog(p: {
       p.onClose(true);
     }, true);
   };
-  const del = () =>
-    run(async () => {
-      if (c) await q.deleteContribution(db, c.id);
-      p.onClose(true);
-    }, true);
   return (
+    <>
     <Dialog visible onDismiss={() => p.onClose(false)} style={{ marginBottom: kb }}>
       <Dialog.Title>{c ? 'Editar aportación' : `Aportar a ${p.title}`}</Dialog.Title>
       <Dialog.ScrollArea>
@@ -50,10 +48,14 @@ export function ContribDialog(p: {
         </ScrollView>
       </Dialog.ScrollArea>
       <Dialog.Actions>
-        {c && <Button onPress={del} disabled={busy}>Borrar</Button>}
+        {c && <Button onPress={() => setAskDel(true)} disabled={busy}>Borrar</Button>}
         <Button onPress={() => p.onClose(false)}>Cancelar</Button>
         <Button onPress={save} disabled={!ok}>Guardar</Button>
       </Dialog.Actions>
     </Dialog>
+    {askDel && c && (
+      <ConfirmDialog msg="¿Borrar esta aportación?" ok={() => q.deleteContribution(db, c.id)} onClose={(ch) => (ch ? p.onClose(true) : setAskDel(false))} />
+    )}
+    </>
   );
 }

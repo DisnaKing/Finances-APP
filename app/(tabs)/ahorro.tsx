@@ -10,13 +10,14 @@ import { useGuard } from '@/src/components/useGuard';
 import { useKeyboardHeight } from '@/src/components/useKeyboardHeight';
 import * as q from '@/src/db/queries';
 import { goalStats } from '@/src/lib/calc';
-import { centsToInput, formatMoney, parseAmount } from '@/src/lib/money';
+import { centsToInput, formatMoney, formatPct, parseAmount } from '@/src/lib/money';
+import { formatDate } from '@/src/lib/month';
 
 const parse = (t: string) => (t.trim() === '' ? 0 : parseAmount(t)); // vacío = 0
 
 type Dlg =
   | { t: 'goal'; goal: q.Goal | null }
-  | { t: 'contrib'; goal: q.Goal; c: q.Contribution | null }
+  | { t: 'contrib'; targetId: number; title: string; defaultAmount: number; c: q.Contribution | null }
   | { t: 'confirm'; msg: string; ok: () => Promise<unknown> }
   | null;
 
@@ -36,7 +37,10 @@ function GoalDialog(p: {
   const t = parse(target);
   const m = parse(min);
   const i = parse(initial);
-  const ok = name.trim() !== '' && t !== null && m !== null && i !== null && !busy;
+  const errT = target.trim() !== '' && t !== null && t <= 0 ? 'La meta debe ser mayor que 0' : undefined;
+  const errM = m !== null && m < 0 ? 'No puede ser negativa' : undefined;
+  const errI = i !== null && i < 0 ? 'No puede ser negativo' : undefined;
+  const ok = name.trim() !== '' && t !== null && t > 0 && m !== null && m >= 0 && i !== null && i >= 0 && !busy;
   const save = () => {
     if (!ok) return;
     return run(async () => {
@@ -51,14 +55,14 @@ function GoalDialog(p: {
       <Dialog.ScrollArea>
         <ScrollView keyboardShouldPersistTaps="handled">
           <TextInput mode="outlined" dense label="Nombre" value={name} onChangeText={setName} />
-          <AmountField label="Meta" value={target} onChange={setTarget} />
-          <AmountField label="Contribución mínima mensual" value={min} onChange={setMin} />
-          <AmountField label="Monto inicial" value={initial} onChange={setInitial} />
+          <AmountField label="Meta" value={target} onChange={setTarget} error={errT} />
+          <AmountField label="Contribución mínima mensual" value={min} onChange={setMin} error={errM} />
+          <AmountField label="Monto inicial" value={initial} onChange={setInitial} error={errI} />
         </ScrollView>
       </Dialog.ScrollArea>
       <Dialog.Actions>
         {goal && (
-          <Button onPress={() => p.onConfirm(`¿Borrar la meta "${goal.name}" y todas sus aportaciones?`, () => q.deleteGoal(db, goal.id))}>
+          <Button disabled={busy} onPress={() => p.onConfirm(`¿Borrar la meta "${goal.name}" y todas sus aportaciones?`, () => q.deleteGoal(db, goal.id))}>
             Borrar
           </Button>
         )}
@@ -133,8 +137,8 @@ export default function Ahorro() {
               <View>
                 <ProgressBar progress={s.progress} style={styles.bar} />
                 <Text variant="bodySmall">
-                  {s.left > 0 ? `falta ${m(s.left)}` : 'meta alcanzada'}
-                  {s.monthsLeft !== null ? ` · ${s.monthsLeft} meses restantes` : ''}
+                  {s.left > 0 ? `falta ${m(s.left)} (${formatPct(s.progress, false)})` : 'meta alcanzada'}
+                  {s.monthsLeft !== null ? ` · ${s.monthsLeft} ${s.monthsLeft === 1 ? 'mes restante' : 'meses restantes'}` : ''}
                 </Text>
               </View>
             )}
@@ -142,7 +146,7 @@ export default function Ahorro() {
               <View style={styles.end}>
                 <Text variant="bodyLarge">{m(s.total)}</Text>
                 <Text variant="bodySmall">de {m(g.target)}</Text>
-                <Button compact onPress={() => setDlg({ t: 'contrib', goal: g, c: null })}>Aportar</Button>
+                <Button compact onPress={() => setDlg({ t: 'contrib', targetId: g.id, title: g.name, defaultAmount: g.min_monthly, c: null })}>Aportar</Button>
               </View>
             )}
             onPress={() => setDlg({ t: 'goal', goal: g })}
@@ -156,11 +160,11 @@ export default function Ahorro() {
           <List.Item
             key={r.id}
             title={r.target_name ?? 'Meta borrada'}
-            description={r.date}
+            description={formatDate(r.date)}
             right={() => <Text variant="bodyLarge" style={styles.amt}>{m(r.amount)}</Text>}
             onPress={() => {
               const goal = goals.find((x) => x.id === r.target_id);
-              if (goal) setDlg({ t: 'contrib', goal, c: r });
+              setDlg({ t: 'contrib', targetId: r.target_id, title: goal?.name ?? 'Meta borrada', defaultAmount: goal?.min_monthly ?? 0, c: r });
             }}
           />
         ))}
@@ -171,16 +175,16 @@ export default function Ahorro() {
         {dlg?.t === 'contrib' && (
           <ContribDialog
             kind="savings"
-            targetId={dlg.goal.id}
-            title={dlg.goal.name}
+            targetId={dlg.targetId}
+            title={dlg.title}
             c={dlg.c}
-            defaultAmount={dlg.goal.min_monthly}
+            defaultAmount={dlg.defaultAmount}
             onClose={close}
           />
         )}
         {dlg?.t === 'confirm' && <ConfirmDialog msg={dlg.msg} ok={dlg.ok} onClose={close} />}
       </Portal>
-      <FAB icon="plus" style={styles.fab} onPress={() => router.navigate('/gasto')} />
+      <FAB icon="plus" accessibilityLabel="Añadir gasto" style={styles.fab} onPress={() => router.navigate('/gasto')} />
     </View>
   );
 }

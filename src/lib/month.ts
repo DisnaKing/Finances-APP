@@ -37,3 +37,9 @@ export function monthRange(m: string): [string, string] {
   const last = new Date(Date.UTC(y, mo, 0)).getUTCDate();
   return [`${m}-01`, `${m}-${pad(last)}`];
 }
+
+/** '2026-11-05' → '05/11/2026' */
+export function formatDate(iso: string): string {
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}

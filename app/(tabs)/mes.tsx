@@ -274,7 +274,7 @@ export default function Mes() {
         {dlg?.t === 'bill' && <BillDialog bill={dlg.bill} month={month} onClose={close} onConfirm={confirm} />}
         {dlg?.t === 'confirm' && <ConfirmDialog msg={dlg.msg} ok={dlg.ok} onClose={close} />}
       </Portal>
-      <FAB icon="plus" style={styles.fab} onPress={() => router.navigate('/gasto')} />
+      <FAB icon="plus" accessibilityLabel="Añadir gasto" style={styles.fab} onPress={() => router.navigate('/gasto')} />
     </View>
   );
 }

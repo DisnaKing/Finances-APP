@@ -85,3 +85,12 @@ export function investmentTotals(xs: { contributed: number; value: number }[]) {
   const gain = value - contributed;
   return { contributed, value, gain, gainPct: contributed > 0 ? gain / contributed : 0 };
 }
+
+/** Valor mostrado: sin valorar = lo aportado; valorado = valor a esa fecha + aportaciones posteriores (date > value_date). */
+export function investmentValue(
+  i: { current_value: number; value_date: string | null },
+  contributed: number,
+  contribAfter: number,
+): number {
+  return i.value_date === null ? contributed : i.current_value + contribAfter;
+}

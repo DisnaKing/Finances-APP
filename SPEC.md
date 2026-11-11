@@ -94,7 +94,7 @@ Mes M:
 
 Ahorro (meta g): `total = initial + Σ contribs(g)`; `left = max(target − total, 0)`; `progress = target>0 ? min(total/target,1) : 0`; `monthsLeft = min_monthly>0 && left>0 ? ceil(left/min_monthly) : null`.
 
-Inversión (activo a): `contributed = initial + Σ contribs(a)`; `gain = current_value − contributed`; `gainPct = contributed>0 ? gain/contributed : 0`. Totales = suma.
+Inversión (activo a): `contributed = initial + Σ contribs(a)`; valor mostrado `value = value_date null ? contributed : current_value + Σ contribs(a con date > value_date)` (las aportaciones del mismo día ya están en el valor); `gain = value − contributed`; `gainPct = contributed>0 ? gain/contributed : 0`. Sin `value_date` se muestra «Sin valorar» en lugar del rendimiento. Totales = suma.
 
 Deuda (d), `r = annual_rate/100/12`:
 - `monthsLeft = NPER(r, −min_payment, principal)` redondeado arriba (`r=0` → `ceil(principal/min_payment)`; si `min_payment ≤ principal·r` → nunca se paga: `null`).

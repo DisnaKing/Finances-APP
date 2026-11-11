@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Button, Chip, Dialog, HelperText, Portal, Text, TextInput, useTheme } from 'react-native-paper';
+import { Button, Chip, HelperText, Portal, Text, TextInput, useTheme } from 'react-native-paper';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
+import { ConfirmDialog } from '@/src/components/ConfirmDialog';
 import { DateField, validDate } from '@/src/components/DateField';
 import { useMonth } from '@/src/components/MonthContext';
 import { useGuard } from '@/src/components/useGuard';
@@ -77,11 +78,6 @@ export default function Gasto() {
       router.back();
     }, true);
   };
-  const del = () =>
-    run(async () => {
-      if (editId !== null) await q.deleteExpense(db, editId);
-      router.back();
-    }, true);
   const addOp = (ch: string) => {
     const { start, end } = selRef.current;
     const r = insertAt(amount, ch, start, end);
@@ -155,13 +151,13 @@ export default function Gasto() {
       </ScrollView>
 
       <Portal>
-        <Dialog visible={askDelete} onDismiss={() => setAskDelete(false)}>
-          <Dialog.Content><Text variant="bodyMedium">¿Borrar este gasto?</Text></Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setAskDelete(false)}>Cancelar</Button>
-            <Button textColor={c.error} onPress={del} disabled={busy}>Borrar</Button>
-          </Dialog.Actions>
-        </Dialog>
+        {askDelete && editId !== null && (
+          <ConfirmDialog
+            msg="¿Borrar este gasto?"
+            ok={() => q.deleteExpense(db, editId)}
+            onClose={(changed) => (changed ? router.back() : setAskDelete(false))}
+          />
+        )}
       </Portal>
     </View>
   );

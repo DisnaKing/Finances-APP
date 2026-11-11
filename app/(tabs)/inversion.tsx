@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Button, Card, Dialog, FAB, List, Portal, Text, TextInput, useTheme } from 'react-native-paper';
+import { Button, Card, Dialog, FAB, HelperText, List, Portal, Text, TextInput, useTheme } from 'react-native-paper';
 import { router, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { AmountField } from '@/src/components/AmountField';
@@ -10,17 +10,16 @@ import { DateField, validDate } from '@/src/components/DateField';
 import { useGuard } from '@/src/components/useGuard';
 import { useKeyboardHeight } from '@/src/components/useKeyboardHeight';
 import * as q from '@/src/db/queries';
-import { investmentStats, investmentTotals } from '@/src/lib/calc';
-import { centsToInput, formatMoney, parseAmount } from '@/src/lib/money';
-import { today } from '@/src/lib/month';
+import { investmentStats, investmentTotals, investmentValue } from '@/src/lib/calc';
+import { centsToInput, formatMoney, formatPct, parseAmount } from '@/src/lib/money';
+import { formatDate, today } from '@/src/lib/month';
 
 const parse = (t: string) => (t.trim() === '' ? 0 : parseAmount(t)); // vacío = 0
-const pct = (x: number) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(1)}%`;
 
 type Dlg =
   | { t: 'inv'; inv: q.Investment | null }
-  | { t: 'value'; inv: q.Investment }
-  | { t: 'contrib'; inv: q.Investment; c: q.Contribution | null }
+  | { t: 'value'; inv: q.Investment; value: number }
+  | { t: 'contrib'; targetId: number; title: string; defaultAmount: number; c: q.Contribution | null }
   | { t: 'confirm'; msg: string; ok: () => Promise<unknown> }
   | null;
 
@@ -38,7 +37,9 @@ function InvDialog(p: {
   const kb = useKeyboardHeight();
   const i = parse(initial);
   const m = parse(monthly);
-  const ok = name.trim() !== '' && i !== null && m !== null && !busy;
+  const errI = i !== null && i < 0 ? 'No puede ser negativa' : undefined;
+  const errM = m !== null && m < 0 ? 'No puede ser negativa' : undefined;
+  const ok = name.trim() !== '' && i !== null && i >= 0 && m !== null && m >= 0 && !busy;
   const save = () => {
     if (!ok) return;
     return run(async () => {
@@ -53,13 +54,13 @@ function InvDialog(p: {
       <Dialog.ScrollArea>
         <ScrollView keyboardShouldPersistTaps="handled">
           <TextInput mode="outlined" dense label="Nombre" value={name} onChangeText={setName} />
-          <AmountField label="Aportación inicial" value={initial} onChange={setInitial} />
-          <AmountField label="Aportación mensual" value={monthly} onChange={setMonthly} />
+          <AmountField label="Aportación inicial" value={initial} onChange={setInitial} error={errI} />
+          <AmountField label="Aportación mensual" value={monthly} onChange={setMonthly} error={errM} />
         </ScrollView>
       </Dialog.ScrollArea>
       <Dialog.Actions>
         {inv && (
-          <Button onPress={() => p.onConfirm(`¿Borrar "${inv.name}" y todas sus aportaciones?`, () => q.deleteInvestment(db, inv.id))}>
+          <Button disabled={busy} onPress={() => p.onConfirm(`¿Borrar "${inv.name}" y todas sus aportaciones?`, () => q.deleteInvestment(db, inv.id))}>
             Borrar
           </Button>
         )}
@@ -70,14 +71,16 @@ function InvDialog(p: {
   );
 }
 
-function ValueDialog(p: { inv: q.Investment; onClose: (changed: boolean) => void }) {
+function ValueDialog(p: { inv: q.Investment; value: number; onClose: (changed: boolean) => void }) {
   const db = useSQLiteContext();
-  const [value, setValue] = useState(centsToInput(p.inv.current_value));
+  const [value, setValue] = useState(centsToInput(p.value));
   const [date, setDate] = useState(today());
   const [busy, run] = useGuard();
   const kb = useKeyboardHeight();
   const v = parse(value);
-  const ok = v !== null && validDate(date) && !busy;
+  const td = today();
+  const errV = v !== null && v < 0 ? 'No puede ser negativo' : undefined;
+  const ok = value.trim() !== '' && v !== null && v >= 0 && validDate(date) && date <= td && !busy;
   const save = () => {
     if (!ok) return;
     return run(async () => {
@@ -90,8 +93,9 @@ function ValueDialog(p: { inv: q.Investment; onClose: (changed: boolean) => void
       <Dialog.Title>Actualizar valor de {p.inv.name}</Dialog.Title>
       <Dialog.ScrollArea>
         <ScrollView keyboardShouldPersistTaps="handled">
-          <AmountField label="Valor actual" value={value} onChange={setValue} />
-          <DateField value={date} onChange={setDate} />
+          <AmountField label="Valor actual" value={value} onChange={setValue} error={errV} />
+          <DateField value={date} onChange={setDate} max={td} />
+          <HelperText type="info">El valor incluye las aportaciones hasta esta fecha</HelperText>
         </ScrollView>
       </Dialog.ScrollArea>
       <Dialog.Actions>
@@ -131,8 +135,11 @@ export default function Inversion() {
     if (changed) load();
   };
   const confirm = (msg: string, ok: () => Promise<unknown>) => setDlg({ t: 'confirm', msg, ok });
-  const rows = invs.map((inv) => ({ inv, s: investmentStats(inv, inv.contrib) }));
-  const tot = investmentTotals(rows.map((x) => ({ contributed: x.s.contributed, value: x.inv.current_value })));
+  const rows = invs.map((inv) => {
+    const value = investmentValue(inv, inv.initial + inv.contrib, inv.contrib_after);
+    return { inv, value, s: investmentStats({ initial: inv.initial, current_value: value }, inv.contrib) };
+  });
+  const tot = investmentTotals(rows.map((x) => ({ contributed: x.s.contributed, value: x.value })));
   const gainColor = (g: number) => (g >= 0 ? c.primary : c.error);
 
   return (
@@ -151,7 +158,7 @@ export default function Inversion() {
               </View>
             </View>
             <Text variant="titleMedium" style={[styles.gap, { color: gainColor(tot.gain) }]}>
-              Rendimiento {m(tot.gain)} ({pct(tot.gainPct)})
+              Rendimiento {m(tot.gain)} ({formatPct(tot.gainPct)})
             </Text>
           </Card.Content>
         </Card>
@@ -163,24 +170,30 @@ export default function Inversion() {
             <Button onPress={() => setDlg({ t: 'inv', inv: null })}>Crea tu primera inversión</Button>
           </View>
         )}
-        {rows.map(({ inv, s }) => (
+        {rows.map(({ inv, value, s }) => (
           <List.Item
             key={inv.id}
             title={inv.name}
             description={() => (
               <View>
                 <Text variant="bodySmall">Aportado {m(s.contributed)}</Text>
-                <Text variant="bodySmall" style={{ color: gainColor(s.gain) }}>
-                  Rendimiento {m(s.gain)} ({pct(s.gainPct)})
-                </Text>
-                {inv.value_date && <Text variant="bodySmall">Valor al {inv.value_date}</Text>}
+                {inv.value_date === null ? (
+                  <Text variant="bodySmall">Sin valorar</Text>
+                ) : (
+                  <>
+                    <Text variant="bodySmall" style={{ color: gainColor(s.gain) }}>
+                      Rendimiento {m(s.gain)} ({formatPct(s.gainPct)})
+                    </Text>
+                    <Text variant="bodySmall">Valor al {formatDate(inv.value_date)}</Text>
+                  </>
+                )}
                 <View style={styles.actions}>
-                  <Button compact onPress={() => setDlg({ t: 'value', inv })}>Actualizar valor</Button>
-                  <Button compact onPress={() => setDlg({ t: 'contrib', inv, c: null })}>Aportar</Button>
+                  <Button compact onPress={() => setDlg({ t: 'value', inv, value })}>Actualizar valor</Button>
+                  <Button compact onPress={() => setDlg({ t: 'contrib', targetId: inv.id, title: inv.name, defaultAmount: inv.monthly, c: null })}>Aportar</Button>
                 </View>
               </View>
             )}
-            right={() => <Text variant="bodyLarge" style={styles.amt}>{m(inv.current_value)}</Text>}
+            right={() => <Text variant="bodyLarge" style={styles.amt}>{m(value)}</Text>}
             onPress={() => setDlg({ t: 'inv', inv })}
           />
         ))}
@@ -192,11 +205,11 @@ export default function Inversion() {
           <List.Item
             key={r.id}
             title={r.target_name ?? 'Inversión borrada'}
-            description={r.date}
+            description={formatDate(r.date)}
             right={() => <Text variant="bodyLarge" style={styles.amt}>{m(r.amount)}</Text>}
             onPress={() => {
               const inv = invs.find((x) => x.id === r.target_id);
-              if (inv) setDlg({ t: 'contrib', inv, c: r });
+              setDlg({ t: 'contrib', targetId: r.target_id, title: inv?.name ?? 'Inversión borrada', defaultAmount: inv?.monthly ?? 0, c: r });
             }}
           />
         ))}
@@ -204,20 +217,20 @@ export default function Inversion() {
 
       <Portal>
         {dlg?.t === 'inv' && <InvDialog inv={dlg.inv} onClose={close} onConfirm={confirm} />}
-        {dlg?.t === 'value' && <ValueDialog inv={dlg.inv} onClose={close} />}
+        {dlg?.t === 'value' && <ValueDialog inv={dlg.inv} value={dlg.value} onClose={close} />}
         {dlg?.t === 'contrib' && (
           <ContribDialog
             kind="investment"
-            targetId={dlg.inv.id}
-            title={dlg.inv.name}
+            targetId={dlg.targetId}
+            title={dlg.title}
             c={dlg.c}
-            defaultAmount={dlg.inv.monthly}
+            defaultAmount={dlg.defaultAmount}
             onClose={close}
           />
         )}
         {dlg?.t === 'confirm' && <ConfirmDialog msg={dlg.msg} ok={dlg.ok} onClose={close} />}
       </Portal>
-      <FAB icon="plus" style={styles.fab} onPress={() => router.navigate('/gasto')} />
+      <FAB icon="plus" accessibilityLabel="Añadir gasto" style={styles.fab} onPress={() => router.navigate('/gasto')} />
     </View>
   );
 }

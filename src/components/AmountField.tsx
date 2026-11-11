@@ -2,8 +2,9 @@ import { View } from 'react-native';
 import { HelperText, TextInput } from 'react-native-paper';
 import { parseAmount } from '@/src/lib/money';
 
-export function AmountField(p: { label: string; value: string; onChange: (v: string) => void }) {
+export function AmountField(p: { label: string; value: string; onChange: (v: string) => void; error?: string }) {
   const bad = p.value.trim() !== '' && parseAmount(p.value) === null;
+  const msg = bad ? 'Importe no válido' : p.error;
   return (
     <View>
       <TextInput
@@ -12,12 +13,12 @@ export function AmountField(p: { label: string; value: string; onChange: (v: str
         label={p.label}
         value={p.value}
         onChangeText={p.onChange}
-        error={bad}
+        error={!!msg}
         keyboardType="decimal-pad"
         autoCorrect={false}
         autoCapitalize="none"
       />
-      <HelperText type="error" visible={bad}>Importe no válido</HelperText>
+      <HelperText type="error" visible={!!msg}>{msg}</HelperText>
     </View>
   );
 }

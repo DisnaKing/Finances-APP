@@ -1,15 +1,17 @@
 import { Platform, StyleSheet, View } from 'react-native';
 import { Button, Chip, HelperText, Text, TextInput } from 'react-native-paper';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
-import { today } from '@/src/lib/month';
+import { formatDate, today } from '@/src/lib/month';
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 /** El padre usa esto para saber si `value` es una fecha válida (deshabilitar Guardar). */
 export const validDate = (s: string) => ISO.test(s) && !isNaN(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-export function DateField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+/** `max` (ISO) opcional: fechas posteriores se marcan como error (el padre debe también deshabilitar Guardar). */
+export function DateField({ value, onChange, max }: { value: string; onChange: (v: string) => void; max?: string }) {
   const ok = validDate(value);
+  const late = ok && max !== undefined && value > max;
   const pickDate = () =>
     DateTimePickerAndroid.open({
       value: ok ? new Date(`${value}T12:00:00`) : new Date(),
@@ -30,11 +32,11 @@ export function DateField({ value, onChange }: { value: string; onChange: (v: st
         <Chip selected={value === yesterday} onPress={() => onChange(yesterday)}>Ayer</Chip>
       </View>
       {Platform.OS === 'web' ? (
-        <TextInput mode="outlined" dense label="YYYY-MM-DD" value={value} onChangeText={onChange} error={!ok} style={styles.label} />
+        <TextInput mode="outlined" dense label="AAAA-MM-DD" value={value} onChangeText={onChange} error={!ok || late} style={styles.label} />
       ) : (
-        <Button mode="outlined" icon="calendar" onPress={pickDate} style={styles.label}>{value}</Button>
+        <Button mode="outlined" icon="calendar" onPress={pickDate} style={styles.label}>{ok ? formatDate(value) : value}</Button>
       )}
-      <HelperText type="error" visible={!ok}>Fecha no válida (YYYY-MM-DD)</HelperText>
+      <HelperText type="error" visible={!ok || late}>{late ? 'La fecha no puede ser futura' : 'Fecha no válida (AAAA-MM-DD)'}</HelperText>
     </>
   );
 }

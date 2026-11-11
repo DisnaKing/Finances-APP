@@ -18,6 +18,8 @@ const KIND_LABEL: Record<Kind, string> = { needs: 'Necesidad', wants: 'Deseo', s
 type Bill = Awaited<ReturnType<typeof q.listAllBills>>[number];
 type Dlg = { t: 'cat'; cat: q.Category | null } | { t: 'bill'; bill: Bill } | null;
 
+const DUP_MSG = 'Ya existe una categoría con ese nombre';
+
 const pctNum = (t: string) => (/^\d{1,3}$/.test(t.trim()) && Number(t) <= 100 ? Number(t) : null);
 
 function CategoryDialog(p: { cat: q.Category | null; names: string[]; onClose: (changed: boolean) => void }) {
@@ -25,13 +27,13 @@ function CategoryDialog(p: { cat: q.Category | null; names: string[]; onClose: (
   const db = useSQLiteContext();
   const [name, setName] = useState(cat?.name ?? '');
   const [kind, setKind] = useState<q.Category['kind']>(cat?.kind ?? 'needs');
-  const [dbErr, setDbErr] = useState(false);
+  const [dbErr, setDbErr] = useState('');
   const [busy, run] = useGuard();
   const [askDel, setAskDel] = useState(false);
   const kb = useKeyboardHeight();
   const n = name.trim();
   const dup = p.names.some((x) => x.toLowerCase() === n.toLowerCase() && x !== cat?.name);
-  const err = dup || dbErr ? 'Ya existe una categoría con ese nombre' : undefined;
+  const err = dup ? DUP_MSG : dbErr || undefined;
   const ok = n !== '' && !err && !busy;
   const save = () => {
     if (!ok) return;
@@ -40,7 +42,7 @@ function CategoryDialog(p: { cat: q.Category | null; names: string[]; onClose: (
         if (cat) await q.updateCategory(db, cat.id, n, kind);
         else await q.addCategory(db, n, kind);
       } catch (e) {
-        setDbErr(true); // nombre repetido (UNIQUE)
+        setDbErr(/UNIQUE/i.test(String(e)) ? DUP_MSG : 'No se pudo guardar');
         throw e;
       }
       p.onClose(true);
@@ -52,13 +54,14 @@ function CategoryDialog(p: { cat: q.Category | null; names: string[]; onClose: (
         <Dialog.Title>{cat ? 'Editar categoría' : 'Nueva categoría'}</Dialog.Title>
         <Dialog.ScrollArea>
           <ScrollView keyboardShouldPersistTaps="handled">
-            <TextInput mode="outlined" dense label="Nombre" value={name} error={!!err} onChangeText={(t) => { setName(t); setDbErr(false); }} />
+            <TextInput mode="outlined" dense label="Nombre" value={name} error={!!err} onChangeText={(t) => { setName(t); setDbErr(''); }} />
             <HelperText type="error" visible={!!err}>{err}</HelperText>
             <SegmentedButtons
               value={kind}
               onValueChange={(v) => setKind(v as q.Category['kind'])}
               buttons={(['needs', 'wants'] as const).map((k) => ({ value: k, label: KIND_LABEL[k] }))}
             />
+            {cat && <HelperText type="info">Los cambios se aplican a todos los meses.</HelperText>}
           </ScrollView>
         </Dialog.ScrollArea>
         <Dialog.Actions>
@@ -69,7 +72,7 @@ function CategoryDialog(p: { cat: q.Category | null; names: string[]; onClose: (
       </Dialog>
       {askDel && cat && (
         <ConfirmDialog
-          msg={`¿Borrar la categoría "${cat.name}"? Sus gastos quedarán sin categoría.`}
+          msg={`¿Borrar la categoría "${cat.name}"? Sus gastos quedarán sin categoría y contarán como Deseos.`}
           ok={() => q.deleteCategory(db, cat.id)}
           onClose={(ch) => (ch ? p.onClose(true) : setAskDel(false))}
         />
@@ -87,6 +90,7 @@ function BillDialog(p: { bill: Bill; onClose: (changed: boolean) => void }) {
   const [busy, run] = useGuard();
   const kb = useKeyboardHeight();
   const b = parseAmount(budget);
+  const errB = budget.trim() !== '' && b !== null && b < 0 ? 'No puede ser negativo' : undefined;
   const ok = concept.trim() !== '' && b !== null && b >= 0 && !busy;
   const save = () => {
     if (!ok) return;
@@ -107,7 +111,8 @@ function BillDialog(p: { bill: Bill; onClose: (changed: boolean) => void }) {
             onValueChange={(v) => setKind(v as Kind)}
             buttons={(Object.keys(KIND_LABEL) as Kind[]).map((k) => ({ value: k, label: KIND_LABEL[k] }))}
           />
-          <AmountField label="Presupuesto" value={budget} onChange={setBudget} />
+          <AmountField label="Presupuesto" value={budget} onChange={setBudget} error={errB} />
+          <HelperText type="info">Los cambios se aplican a todos los meses.</HelperText>
         </ScrollView>
       </Dialog.ScrollArea>
       <Dialog.Actions>
@@ -127,6 +132,8 @@ export default function Ajustes() {
   const [bills, setBills] = useState<Bill[]>([]);
   const [dlg, setDlg] = useState<Dlg>(null);
   const [saved, setSaved] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [loadErr, setLoadErr] = useState(false);
   const [expErr, setExpErr] = useState('');
   const [busy, run] = useGuard();
   const seq = useRef(0);
@@ -140,8 +147,11 @@ export default function Ajustes() {
       setPct({ needs: String(st.pct.needs), wants: String(st.pct.wants), savings: String(st.pct.savings) });
       setCats(cs);
       setBills(bs);
+      setLoaded(true);
+      setLoadErr(false);
     } catch (err) {
       console.error(err);
+      setLoadErr(true);
     }
   }, [db]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -160,8 +170,7 @@ export default function Ajustes() {
   const saveGeneral = () =>
     run(async () => {
       if (pctErr || curErr) return;
-      await q.setCurrency(db, cur.trim());
-      await q.setPct(db, { needs: nums[0]!, wants: nums[1]!, savings: nums[2]! });
+      await q.saveGeneral(db, cur.trim(), { needs: nums[0]!, wants: nums[1]!, savings: nums[2]! });
       setSaved(true);
     });
 
@@ -196,6 +205,7 @@ export default function Ajustes() {
     <View style={[styles.flex, { backgroundColor: c.background }]}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text variant="titleMedium">General</Text>
+        <HelperText type="error" visible={loadErr}>No se pudieron cargar los ajustes.</HelperText>
         <TextInput mode="outlined" dense label="Moneda" value={cur} onChangeText={(t) => edit(() => setCur(t))} error={!!curErr} maxLength={4} autoCorrect={false} />
         <HelperText type="error" visible={!!curErr}>{curErr}</HelperText>
         <Text variant="labelLarge">Reparto 50/30/20</Text>
@@ -205,7 +215,7 @@ export default function Ajustes() {
           {pctField('savings', 'Ahorro')}
         </View>
         <HelperText type="error" visible={!!pctErr}>{pctErr}</HelperText>
-        <Button mode="contained" onPress={saveGeneral} disabled={busy || !!pctErr || !!curErr}>Guardar</Button>
+        <Button mode="contained" onPress={saveGeneral} disabled={busy || !loaded || !!pctErr || !!curErr}>Guardar</Button>
         {saved && <HelperText type="info" visible>Guardado.</HelperText>}
 
         <Divider style={styles.div} />

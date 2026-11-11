@@ -5,6 +5,7 @@ import {
   Checkbox,
   Dialog,
   FAB,
+  HelperText,
   IconButton,
   List,
   Portal,
@@ -128,6 +129,7 @@ function BillDialog(p: {
           <AmountField label="Presupuesto" value={budget} onChange={setBudget} />
           {bill && (
             <>
+              <HelperText type="info">Los cambios se aplican a todos los meses.</HelperText>
               {bill.payment_amount !== null && (
                 <Button onPress={clearPayment} disabled={busy}>Quitar pago de este mes</Button>
               )}

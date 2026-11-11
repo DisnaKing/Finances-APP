@@ -1,5 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { billVisible, debtActiveIn, type Kind, type MonthInput, type Pct } from '@/src/lib/calc';
+import { billVisible, debtActiveIn, reactivationPlan, type Kind, type MonthInput, type Pct } from '@/src/lib/calc';
 import { addMonths, currentMonth, monthOf, monthRange, today } from '@/src/lib/month';
 
 // Solo runAsync/getAllAsync/withTransactionAsync: withExclusiveTransactionAsync usa otra conexión
@@ -346,11 +346,19 @@ const setSetting = (db: SQLiteDatabase, key: string, value: string) =>
 
 export const setCurrency = (db: SQLiteDatabase, currency: string) => write(() => setSetting(db, 'currency', currency));
 
-export const setPct = (db: SQLiteDatabase, p: Pct) =>
+const putPct = async (db: SQLiteDatabase, p: Pct) => {
+  await setSetting(db, 'pct_needs', String(p.needs));
+  await setSetting(db, 'pct_wants', String(p.wants));
+  await setSetting(db, 'pct_savings', String(p.savings));
+};
+
+export const setPct = (db: SQLiteDatabase, p: Pct) => tx(db, () => putPct(db, p));
+
+/** Moneda + porcentajes en una sola transacción (o se guardan los dos o ninguno). */
+export const saveGeneral = (db: SQLiteDatabase, currency: string, p: Pct) =>
   tx(db, async () => {
-    await setSetting(db, 'pct_needs', String(p.needs));
-    await setSetting(db, 'pct_wants', String(p.wants));
-    await setSetting(db, 'pct_savings', String(p.savings));
+    await setSetting(db, 'currency', currency);
+    await putPct(db, p);
   });
 
 // Nombre repetido: lanza (UNIQUE) y el llamador lo muestra junto al campo.
@@ -367,38 +375,52 @@ export const deleteCategory = (db: SQLiteDatabase, id: number) => write(() => db
 export const listAllBills = (db: SQLiteDatabase) =>
   db.getAllAsync<Omit<Bill, 'payment_amount' | 'paid'>>('SELECT id, concept, kind, budget, start_month, end_month FROM bill ORDER BY id');
 
-export const reactivateBill = (db: SQLiteDatabase, id: number) => write(() => db.runAsync('UPDATE bill SET end_month = NULL WHERE id = ?', id));
+/** Reabre la factura (end_month = NULL) si terminó hace poco; si es antigua, inserta una copia desde este mes y deja la vieja como histórico. */
+export const reactivateBill = (db: SQLiteDatabase, id: number) =>
+  tx(db, async () => {
+    const b = await db.getFirstAsync<{ concept: string; kind: Kind; budget: number; end_month: string | null }>(
+      'SELECT concept, kind, budget, end_month FROM bill WHERE id = ?',
+      id,
+    );
+    if (!b || b.end_month === null) return;
+    if (reactivationPlan(b.end_month, currentMonth()) === 'reopen') {
+      await db.runAsync('UPDATE bill SET end_month = NULL WHERE id = ?', id);
+    } else {
+      await db.runAsync('INSERT INTO bill (concept, kind, budget, start_month, end_month) VALUES (?, ?, ?, ?, NULL)', b.concept, b.kind, b.budget, currentMonth());
+    }
+  });
 
 // --- Exportar ---
 
 export const BACKUP_TABLES = ['settings', 'category', 'income', 'bill', 'bill_payment', 'expense', 'savings_goal', 'investment', 'debt', 'contribution'] as const;
 
-/** Volcado de todas las tablas + metadatos. */
-export async function backupData(db: SQLiteDatabase) {
-  const v = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-  const tables: Record<string, unknown[]> = {};
-  for (const t of BACKUP_TABLES) tables[t] = await db.getAllAsync(`SELECT * FROM ${t}`);
-  return { app: 'mny', schema: v?.user_version ?? 0, exported_at: new Date().toISOString(), ...tables };
-}
+/** Volcado de todas las tablas + metadatos; las lecturas van en la cola de escritura para no mezclar una tx a medias. */
+export const backupData = (db: SQLiteDatabase) =>
+  write(async () => {
+    const v = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+    const tables: Record<string, unknown[]> = {};
+    for (const t of BACKUP_TABLES) tables[t] = await db.getAllAsync(`SELECT * FROM ${t}`);
+    return { app: 'mny', schema: v?.user_version ?? 0, exported_at: new Date().toISOString(), tables };
+  });
 
 /** Movimientos para el CSV: [fecha, tipo, concepto, categoría/destino, importe en céntimos]. */
 export async function movements(db: SQLiteDatabase): Promise<[string, string, string, string, number][]> {
-  const rows = await db.getAllAsync<{ date: string; tipo: string; concept: string; dest: string | null; amount: number }>(
-    `SELECT e.date AS date, 'Gasto' AS tipo, e.concept AS concept, c.name AS dest, e.amount AS amount
+  const rows = await db.getAllAsync<{ date: string; tipo: string; concept: string; dest: string | null; amount: number; id: number }>(
+    `SELECT e.date AS date, 'Gasto' AS tipo, e.concept AS concept, c.name AS dest, e.amount AS amount, e.id AS id
        FROM expense e LEFT JOIN category c ON c.id = e.category_id
      UNION ALL
-     SELECT COALESCE(p.date, p.month || '-01'), 'Factura', b.concept, NULL, p.amount
+     SELECT COALESCE(p.date, p.month || '-01'), 'Factura', b.concept, NULL, p.amount, p.id
        FROM bill_payment p JOIN bill b ON b.id = p.bill_id
      UNION ALL
-     SELECT month || '-01', 'Ingreso', concept, NULL, amount FROM income WHERE amount <> 0
+     SELECT month || '-01', 'Ingreso', concept, NULL, amount, id FROM income WHERE amount <> 0
      UNION ALL
      SELECT c.date, CASE c.kind WHEN 'savings' THEN 'Ahorro' WHEN 'investment' THEN 'Inversión' ELSE 'Deuda' END,
-            COALESCE(g.name, i.name, d.name, ''), COALESCE(g.name, i.name, d.name), c.amount
+            COALESCE(g.name, i.name, d.name, ''), COALESCE(g.name, i.name, d.name), c.amount, c.id
        FROM contribution c
        LEFT JOIN savings_goal g ON c.kind = 'savings' AND g.id = c.target_id
        LEFT JOIN investment i ON c.kind = 'investment' AND i.id = c.target_id
        LEFT JOIN debt d ON c.kind = 'debt' AND d.id = c.target_id
-     ORDER BY 1`,
+     ORDER BY 1, 2, 6`,
   );
   return rows.map((r) => [r.date, r.tipo, r.concept, r.dest ?? '', r.amount]);
 }

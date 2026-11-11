@@ -13,8 +13,11 @@ export async function saveFile(name: string, content: string, mimeType: string) 
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     return;
   }
+  // limpia exportaciones anteriores (pueden contener datos financieros)
+  try {
+    for (const x of Paths.cache.list()) if (x instanceof File && x.name.startsWith('mny-')) try { x.delete(); } catch {}
+  } catch {}
   const f = new File(Paths.cache, name);
-  f.create({ overwrite: true });
   await f.write(content);
   if (!(await Sharing.isAvailableAsync())) throw new Error('Compartir no disponible');
   await Sharing.shareAsync(f.uri, { mimeType, dialogTitle: name });

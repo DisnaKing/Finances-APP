@@ -106,6 +106,9 @@ const addM = (m: string, n: number): string => {
   return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`;
 };
 
+/** Reactivar una factura terminada: si acabó el mes actual o el anterior se reabre; si es más antigua, se copia (el hueco no se rellena). */
+export const reactivationPlan = (endMonth: string, current: string): 'reopen' | 'copy' => (endMonth >= addM(current, -1) ? 'reopen' : 'copy');
+
 /** Meses para liquidar `principal` pagando `payment` al mes (redondeado arriba). null = nunca (pago ≤ interés, redondeado como en el cuadro). */
 export function nper(r: number, payment: number, principal: number): number | null {
   if (principal <= 0) return 0;

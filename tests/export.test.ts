@@ -16,7 +16,7 @@ test('toCsv: BOM, cabecera, coma decimal, CRLF y escapado', () => {
     ['2026-11-02', 'ingreso', 'Nómina', '', 150000],
     ['2026-11-03', 'gasto', 'Devolución', 'Hogar', -5],
   ]);
-  assert.ok(csv.startsWith('﻿fecha;tipo;concepto;categoría/destino;importe\r\n'));
+  assert.ok(csv.startsWith('\uFEFFfecha;tipo;concepto;categoría/destino;importe\r\n'));
   assert.deepEqual(csv.slice(1).split('\r\n'), [
     'fecha;tipo;concepto;categoría/destino;importe',
     '2026-11-01;gasto;"Café; ""bar""";Ocio;12,34',
@@ -27,7 +27,14 @@ test('toCsv: BOM, cabecera, coma decimal, CRLF y escapado', () => {
 });
 
 test('toCsv: sin filas solo cabecera', () => {
-  assert.equal(toCsv([]), '﻿fecha;tipo;concepto;categoría/destino;importe\r\n');
+  assert.equal(toCsv([]), '\uFEFFfecha;tipo;concepto;categoría/destino;importe\r\n');
+});
+
+test('toCsv: texto que empieza por = + - @ tab o CR lleva apóstrofo; el importe negativo no', () => {
+  const row = (c: string): [string, string, string, string, number] => ['2026-11-01', 'gasto', c, '-k', -5];
+  const body = (c: string) => toCsv([row(c)]).slice(1).split('\r\n')[1];
+  for (const c of ['=SUM(A1)', '+1', '-2', '@x', '\tz']) assert.equal(body(c), `2026-11-01;gasto;'${c};'-k;-0,05`);
+  assert.equal(body('\rz'), `2026-11-01;gasto;"'\rz";'-k;-0,05`);
 });
 
 test('backupName', () => {

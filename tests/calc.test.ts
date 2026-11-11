@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { billVisible, monthSummary, type Kind, type MonthInput } from '../src/lib/calc.ts';
+import { billVisible, monthSummary, reactivationPlan, type Kind, type MonthInput } from '../src/lib/calc.ts';
 
 const pct = { needs: 50, wants: 30, savings: 20 };
 const base: MonthInput = { incomes: [], bills: [], expenses: [], contributions: [], pct };
@@ -128,4 +128,12 @@ test('fixture Excel: resumen de cada mes', { skip: !existsSync(FIXTURE) }, () =>
   }
   const rem = Object.fromEntries(months.map((m) => [m, data.months[m].expected.remaining]));
   assert.deepEqual(rem, { '2026-08': 18367, '2026-09': 3033, '2026-10': 5445, '2026-11': 35248 });
+});
+
+test('reactivationPlan: terminada este mes o el anterior se reabre; más antigua se copia', () => {
+  assert.equal(reactivationPlan('2026-11', '2026-11'), 'reopen');
+  assert.equal(reactivationPlan('2026-10', '2026-11'), 'reopen');
+  assert.equal(reactivationPlan('2026-09', '2026-11'), 'copy');
+  assert.equal(reactivationPlan('2025-12', '2026-01'), 'reopen');
+  assert.equal(reactivationPlan('2025-11', '2026-01'), 'copy');
 });

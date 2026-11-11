@@ -35,7 +35,7 @@ function HomeMenu() {
     <Menu
       visible={open}
       onDismiss={() => setOpen(false)}
-      anchor={<IconButton icon="dots-vertical" onPress={() => setOpen(true)} />}
+      anchor={<IconButton icon="dots-vertical" accessibilityLabel="Más opciones" onPress={() => setOpen(true)} />}
     >
       <Menu.Item leadingIcon="credit-card-outline" title="Deudas" onPress={() => go('/deudas')} />
       <Menu.Item leadingIcon="calendar-month" title="Anual" onPress={() => go('/anual')} />

@@ -190,3 +190,21 @@ export function debtSummary(items: { id: number; min_payment: number; currentBal
     order: [...open.sort(byBalance), ...items.filter((x) => x.currentBalance <= 0).sort(byBalance)].map((x) => x.id),
   };
 }
+
+export type MonthSummary = ReturnType<typeof monthSummary>;
+export type YearRow = { month: number; income: number; spent: number; saved: number; invested: number; debtPaid: number; remaining: number };
+
+/** Resumen anual: una fila por mes (`month` = 1..12 según el orden recibido) y, aparte, la fila de totales. `spent` excluye inversión. */
+export function yearSummary(months: MonthSummary[]): { rows: YearRow[]; total: Omit<YearRow, 'month'> } {
+  const rows = months.map((s, i) => ({
+    month: i + 1,
+    income: s.income,
+    spent: s.spent,
+    saved: s.saved,
+    invested: s.invested,
+    debtPaid: s.debtPaid,
+    remaining: s.remaining,
+  }));
+  const t = (k: Exclude<keyof YearRow, 'month'>) => sum(rows.map((r) => r[k]));
+  return { rows, total: { income: t('income'), spent: t('spent'), saved: t('saved'), invested: t('invested'), debtPaid: t('debtPaid'), remaining: t('remaining') } };
+}

@@ -1,5 +1,260 @@
-import { Placeholder } from '@/src/components/Placeholder';
+import { useCallback, useRef, useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { Button, Dialog, Divider, HelperText, List, Portal, SegmentedButtons, Text, TextInput, useTheme } from 'react-native-paper';
+import { useFocusEffect } from 'expo-router';
+import { useSQLiteContext } from 'expo-sqlite';
+import { AmountField } from '@/src/components/AmountField';
+import { ConfirmDialog } from '@/src/components/ConfirmDialog';
+import { saveFile } from '@/src/components/saveFile';
+import { useGuard } from '@/src/components/useGuard';
+import { useKeyboardHeight } from '@/src/components/useKeyboardHeight';
+import * as q from '@/src/db/queries';
+import type { Kind } from '@/src/lib/calc';
+import { backupName, toCsv } from '@/src/lib/export';
+import { centsToInput, formatMoney, parseAmount } from '@/src/lib/money';
+import { monthName, today } from '@/src/lib/month';
 
-export default function Screen() {
-  return <Placeholder fab={false} />;
+const KIND_LABEL: Record<Kind, string> = { needs: 'Necesidad', wants: 'Deseo', savings: 'Ahorro' };
+type Bill = Awaited<ReturnType<typeof q.listAllBills>>[number];
+type Dlg = { t: 'cat'; cat: q.Category | null } | { t: 'bill'; bill: Bill } | null;
+
+const pctNum = (t: string) => (/^\d{1,3}$/.test(t.trim()) && Number(t) <= 100 ? Number(t) : null);
+
+function CategoryDialog(p: { cat: q.Category | null; names: string[]; onClose: (changed: boolean) => void }) {
+  const { cat } = p;
+  const db = useSQLiteContext();
+  const [name, setName] = useState(cat?.name ?? '');
+  const [kind, setKind] = useState<q.Category['kind']>(cat?.kind ?? 'needs');
+  const [dbErr, setDbErr] = useState(false);
+  const [busy, run] = useGuard();
+  const [askDel, setAskDel] = useState(false);
+  const kb = useKeyboardHeight();
+  const n = name.trim();
+  const dup = p.names.some((x) => x.toLowerCase() === n.toLowerCase() && x !== cat?.name);
+  const err = dup || dbErr ? 'Ya existe una categoría con ese nombre' : undefined;
+  const ok = n !== '' && !err && !busy;
+  const save = () => {
+    if (!ok) return;
+    return run(async () => {
+      try {
+        if (cat) await q.updateCategory(db, cat.id, n, kind);
+        else await q.addCategory(db, n, kind);
+      } catch (e) {
+        setDbErr(true); // nombre repetido (UNIQUE)
+        throw e;
+      }
+      p.onClose(true);
+    }, true);
+  };
+  return (
+    <>
+      <Dialog visible onDismiss={() => p.onClose(false)} style={{ marginBottom: kb }}>
+        <Dialog.Title>{cat ? 'Editar categoría' : 'Nueva categoría'}</Dialog.Title>
+        <Dialog.ScrollArea>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <TextInput mode="outlined" dense label="Nombre" value={name} error={!!err} onChangeText={(t) => { setName(t); setDbErr(false); }} />
+            <HelperText type="error" visible={!!err}>{err}</HelperText>
+            <SegmentedButtons
+              value={kind}
+              onValueChange={(v) => setKind(v as q.Category['kind'])}
+              buttons={(['needs', 'wants'] as const).map((k) => ({ value: k, label: KIND_LABEL[k] }))}
+            />
+          </ScrollView>
+        </Dialog.ScrollArea>
+        <Dialog.Actions>
+          {cat && <Button disabled={busy} onPress={() => setAskDel(true)}>Borrar</Button>}
+          <Button onPress={() => p.onClose(false)}>Cancelar</Button>
+          <Button onPress={save} disabled={!ok}>Guardar</Button>
+        </Dialog.Actions>
+      </Dialog>
+      {askDel && cat && (
+        <ConfirmDialog
+          msg={`¿Borrar la categoría "${cat.name}"? Sus gastos quedarán sin categoría.`}
+          ok={() => q.deleteCategory(db, cat.id)}
+          onClose={(ch) => (ch ? p.onClose(true) : setAskDel(false))}
+        />
+      )}
+    </>
+  );
 }
+
+function BillDialog(p: { bill: Bill; onClose: (changed: boolean) => void }) {
+  const { bill } = p;
+  const db = useSQLiteContext();
+  const [concept, setConcept] = useState(bill.concept);
+  const [kind, setKind] = useState<Kind>(bill.kind);
+  const [budget, setBudget] = useState(centsToInput(bill.budget));
+  const [busy, run] = useGuard();
+  const kb = useKeyboardHeight();
+  const b = parseAmount(budget);
+  const ok = concept.trim() !== '' && b !== null && b >= 0 && !busy;
+  const save = () => {
+    if (!ok) return;
+    return run(async () => {
+      await q.updateBill(db, bill.id, concept.trim(), kind, b);
+      p.onClose(true);
+    }, true);
+  };
+  return (
+    <Dialog visible onDismiss={() => p.onClose(false)} style={{ marginBottom: kb }}>
+      <Dialog.Title>Editar factura</Dialog.Title>
+      <Dialog.ScrollArea>
+        <ScrollView keyboardShouldPersistTaps="handled">
+          <TextInput mode="outlined" dense label="Concepto" value={concept} onChangeText={setConcept} />
+          <SegmentedButtons
+            style={styles.seg}
+            value={kind}
+            onValueChange={(v) => setKind(v as Kind)}
+            buttons={(Object.keys(KIND_LABEL) as Kind[]).map((k) => ({ value: k, label: KIND_LABEL[k] }))}
+          />
+          <AmountField label="Presupuesto" value={budget} onChange={setBudget} />
+        </ScrollView>
+      </Dialog.ScrollArea>
+      <Dialog.Actions>
+        <Button onPress={() => p.onClose(false)}>Cancelar</Button>
+        <Button onPress={save} disabled={!ok}>Guardar</Button>
+      </Dialog.Actions>
+    </Dialog>
+  );
+}
+
+export default function Ajustes() {
+  const db = useSQLiteContext();
+  const c = useTheme().colors;
+  const [cur, setCur] = useState('€');
+  const [pct, setPct] = useState({ needs: '50', wants: '30', savings: '20' });
+  const [cats, setCats] = useState<q.Category[]>([]);
+  const [bills, setBills] = useState<Bill[]>([]);
+  const [dlg, setDlg] = useState<Dlg>(null);
+  const [saved, setSaved] = useState(false);
+  const [expErr, setExpErr] = useState('');
+  const [busy, run] = useGuard();
+  const seq = useRef(0);
+
+  const load = useCallback(async () => {
+    const n = ++seq.current;
+    try {
+      const [st, cs, bs] = await Promise.all([q.getSettings(db), q.listCategories(db), q.listAllBills(db)]);
+      if (n !== seq.current) return; // llegó otra carga más reciente
+      setCur(st.currency);
+      setPct({ needs: String(st.pct.needs), wants: String(st.pct.wants), savings: String(st.pct.savings) });
+      setCats(cs);
+      setBills(bs);
+    } catch (err) {
+      console.error(err);
+    }
+  }, [db]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const close = (changed: boolean) => {
+    setDlg(null);
+    if (changed) load();
+  };
+
+  const nums = [pctNum(pct.needs), pctNum(pct.wants), pctNum(pct.savings)];
+  const sum = nums.reduce<number>((a, x) => a + (x ?? 0), 0);
+  const curOk = cur.trim().length >= 1 && cur.trim().length <= 4;
+  const pctErr = nums.includes(null) ? 'Cada porcentaje es un entero de 0 a 100' : sum !== 100 ? `Deben sumar 100 (ahora suman ${sum})` : undefined;
+  const curErr = curOk ? undefined : 'De 1 a 4 caracteres';
+  const edit = (f: () => void) => { setSaved(false); f(); };
+  const saveGeneral = () =>
+    run(async () => {
+      if (pctErr || curErr) return;
+      await q.setCurrency(db, cur.trim());
+      await q.setPct(db, { needs: nums[0]!, wants: nums[1]!, savings: nums[2]! });
+      setSaved(true);
+    });
+
+  const exportAs = (what: 'json' | 'csv') =>
+    run(async () => {
+      setExpErr('');
+      try {
+        if (what === 'json') await saveFile(backupName(today()), JSON.stringify(await q.backupData(db), null, 2), 'application/json');
+        else await saveFile(`mny-movimientos-${today()}.csv`, toCsv(await q.movements(db)), 'text/csv');
+      } catch (e) {
+        console.error(e);
+        setExpErr('No se pudo exportar el archivo.');
+      }
+    });
+
+  const pctField = (key: 'needs' | 'wants' | 'savings', label: string) => (
+    <TextInput
+      style={styles.pct}
+      mode="outlined"
+      dense
+      label={label}
+      value={pct[key]}
+      onChangeText={(t) => edit(() => setPct({ ...pct, [key]: t }))}
+      error={!!pctErr}
+      keyboardType="number-pad"
+      maxLength={3}
+      right={<TextInput.Affix text="%" />}
+    />
+  );
+
+  return (
+    <View style={[styles.flex, { backgroundColor: c.background }]}>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <Text variant="titleMedium">General</Text>
+        <TextInput mode="outlined" dense label="Moneda" value={cur} onChangeText={(t) => edit(() => setCur(t))} error={!!curErr} maxLength={4} autoCorrect={false} />
+        <HelperText type="error" visible={!!curErr}>{curErr}</HelperText>
+        <Text variant="labelLarge">Reparto 50/30/20</Text>
+        <View style={styles.pcts}>
+          {pctField('needs', 'Necesidades')}
+          {pctField('wants', 'Deseos')}
+          {pctField('savings', 'Ahorro')}
+        </View>
+        <HelperText type="error" visible={!!pctErr}>{pctErr}</HelperText>
+        <Button mode="contained" onPress={saveGeneral} disabled={busy || !!pctErr || !!curErr}>Guardar</Button>
+        {saved && <HelperText type="info" visible>Guardado.</HelperText>}
+
+        <Divider style={styles.div} />
+        <Text variant="titleMedium">Categorías de gasto</Text>
+        {cats.map((x) => (
+          <List.Item key={x.id} title={x.name} description={KIND_LABEL[x.kind]} onPress={() => setDlg({ t: 'cat', cat: x })} />
+        ))}
+        <Button icon="plus" onPress={() => setDlg({ t: 'cat', cat: null })}>Añadir categoría</Button>
+
+        <Divider style={styles.div} />
+        <Text variant="titleMedium">Facturas recurrentes</Text>
+        {bills.length === 0 && <Text variant="bodyMedium">Aún no hay facturas. Se crean desde la pestaña Mes.</Text>}
+        {bills.map((b) => (
+          <List.Item
+            key={b.id}
+            title={b.concept}
+            description={`${KIND_LABEL[b.kind]} · ${formatMoney(b.budget, cur)} · desde ${monthName(b.start_month)}${b.end_month ? ` hasta ${monthName(b.end_month)}` : ''}`}
+            descriptionNumberOfLines={3}
+            right={() =>
+              b.end_month ? (
+                <Button compact disabled={busy} accessibilityLabel={`Reactivar ${b.concept}`} onPress={() => run(async () => { await q.reactivateBill(db, b.id); await load(); })}>
+                  Reactivar
+                </Button>
+              ) : null
+            }
+            onPress={() => setDlg({ t: 'bill', bill: b })}
+          />
+        ))}
+
+        <Divider style={styles.div} />
+        <Text variant="titleMedium">Exportar</Text>
+        <Button icon="download" disabled={busy} onPress={() => exportAs('json')}>Copia de seguridad (JSON)</Button>
+        <Button icon="table" disabled={busy} onPress={() => exportAs('csv')}>Movimientos (CSV)</Button>
+        <HelperText type="error" visible={expErr !== ''}>{expErr}</HelperText>
+      </ScrollView>
+
+      <Portal>
+        {dlg?.t === 'cat' && <CategoryDialog cat={dlg.cat} names={cats.map((x) => x.name)} onClose={close} />}
+        {dlg?.t === 'bill' && <BillDialog bill={dlg.bill} onClose={close} />}
+      </Portal>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  flex: { flex: 1 },
+  content: { padding: 16, paddingBottom: 32 },
+  pcts: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  pct: { flex: 1 },
+  div: { marginVertical: 16 },
+  seg: { marginVertical: 8 },
+});

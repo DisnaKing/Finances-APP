@@ -332,3 +332,73 @@ async function debtPlan(db: SQLiteDatabase, month: string): Promise<number> {
   const [debts, paid] = await Promise.all([listDebts(db), debtPaymentsByMonth(db)]);
   return debts.reduce((a, d) => a + (debtActiveIn(d, paid[d.id] ?? {}, month) ? d.min_payment : 0), 0);
 }
+
+// --- Anual ---
+
+/** MonthInput de los 12 meses del año (solo lecturas, no crea ingresos). */
+export const yearInputs = (db: SQLiteDatabase, year: number) =>
+  Promise.all(Array.from({ length: 12 }, (_, i) => monthInput(db, `${year}-${String(i + 1).padStart(2, '0')}`)));
+
+// --- Ajustes: escritura ---
+
+const setSetting = (db: SQLiteDatabase, key: string, value: string) =>
+  db.runAsync('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, value);
+
+export const setCurrency = (db: SQLiteDatabase, currency: string) => write(() => setSetting(db, 'currency', currency));
+
+export const setPct = (db: SQLiteDatabase, p: Pct) =>
+  tx(db, async () => {
+    await setSetting(db, 'pct_needs', String(p.needs));
+    await setSetting(db, 'pct_wants', String(p.wants));
+    await setSetting(db, 'pct_savings', String(p.savings));
+  });
+
+// Nombre repetido: lanza (UNIQUE) y el llamador lo muestra junto al campo.
+export const addCategory = (db: SQLiteDatabase, name: string, kind: Category['kind']) =>
+  write(() => db.runAsync('INSERT INTO category (name, kind, sort) VALUES (?, ?, (SELECT COALESCE(MAX(sort), 0) + 1 FROM category))', name, kind));
+
+export const updateCategory = (db: SQLiteDatabase, id: number, name: string, kind: Category['kind']) =>
+  write(() => db.runAsync('UPDATE category SET name = ?, kind = ? WHERE id = ?', name, kind, id));
+
+/** Sus gastos quedan sin categoría (ON DELETE SET NULL). */
+export const deleteCategory = (db: SQLiteDatabase, id: number) => write(() => db.runAsync('DELETE FROM category WHERE id = ?', id));
+
+/** Plantillas de factura, activas y terminadas. */
+export const listAllBills = (db: SQLiteDatabase) =>
+  db.getAllAsync<Omit<Bill, 'payment_amount' | 'paid'>>('SELECT id, concept, kind, budget, start_month, end_month FROM bill ORDER BY id');
+
+export const reactivateBill = (db: SQLiteDatabase, id: number) => write(() => db.runAsync('UPDATE bill SET end_month = NULL WHERE id = ?', id));
+
+// --- Exportar ---
+
+export const BACKUP_TABLES = ['settings', 'category', 'income', 'bill', 'bill_payment', 'expense', 'savings_goal', 'investment', 'debt', 'contribution'] as const;
+
+/** Volcado de todas las tablas + metadatos. */
+export async function backupData(db: SQLiteDatabase) {
+  const v = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+  const tables: Record<string, unknown[]> = {};
+  for (const t of BACKUP_TABLES) tables[t] = await db.getAllAsync(`SELECT * FROM ${t}`);
+  return { app: 'mny', schema: v?.user_version ?? 0, exported_at: new Date().toISOString(), ...tables };
+}
+
+/** Movimientos para el CSV: [fecha, tipo, concepto, categoría/destino, importe en céntimos]. */
+export async function movements(db: SQLiteDatabase): Promise<[string, string, string, string, number][]> {
+  const rows = await db.getAllAsync<{ date: string; tipo: string; concept: string; dest: string | null; amount: number }>(
+    `SELECT e.date AS date, 'Gasto' AS tipo, e.concept AS concept, c.name AS dest, e.amount AS amount
+       FROM expense e LEFT JOIN category c ON c.id = e.category_id
+     UNION ALL
+     SELECT COALESCE(p.date, p.month || '-01'), 'Factura', b.concept, NULL, p.amount
+       FROM bill_payment p JOIN bill b ON b.id = p.bill_id
+     UNION ALL
+     SELECT month || '-01', 'Ingreso', concept, NULL, amount FROM income WHERE amount <> 0
+     UNION ALL
+     SELECT c.date, CASE c.kind WHEN 'savings' THEN 'Ahorro' WHEN 'investment' THEN 'Inversión' ELSE 'Deuda' END,
+            COALESCE(g.name, i.name, d.name, ''), COALESCE(g.name, i.name, d.name), c.amount
+       FROM contribution c
+       LEFT JOIN savings_goal g ON c.kind = 'savings' AND g.id = c.target_id
+       LEFT JOIN investment i ON c.kind = 'investment' AND i.id = c.target_id
+       LEFT JOIN debt d ON c.kind = 'debt' AND d.id = c.target_id
+     ORDER BY 1`,
+  );
+  return rows.map((r) => [r.date, r.tipo, r.concept, r.dest ?? '', r.amount]);
+}

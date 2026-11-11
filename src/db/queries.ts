@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { billVisible, debtActiveIn, reactivationPlan, type Kind, type MonthInput, type Pct } from '@/src/lib/calc';
+import { validateBackup, type ImportPlan } from '@/src/lib/importXlsx';
 import { addMonths, currentMonth, monthOf, monthRange, today } from '@/src/lib/month';
 
 // Solo runAsync/getAllAsync/withTransactionAsync: withExclusiveTransactionAsync usa otra conexión
@@ -401,6 +402,55 @@ export const backupData = (db: SQLiteDatabase) =>
     const tables: Record<string, unknown[]> = {};
     for (const t of BACKUP_TABLES) tables[t] = await db.getAllAsync(`SELECT * FROM ${t}`);
     return { app: 'mny', schema: v?.user_version ?? 0, exported_at: new Date().toISOString(), tables };
+  });
+
+// Orden inverso al de inserción: primero los hijos (FK activas).
+const WIPE = ['contribution', 'bill_payment', 'expense', 'income', 'bill', 'savings_goal', 'investment', 'debt'];
+
+/** Importación del Excel: reemplaza datos en UNA transacción. Conserva ajustes (salvo la moneda del Excel) y categorías (crea las que falten). */
+export const applyImport = (db: SQLiteDatabase, plan: ImportPlan) =>
+  tx(db, async () => {
+    for (const t of WIPE) await db.runAsync(`DELETE FROM ${t}`);
+    const ins = async (sql: string, ...p: (string | number | null)[]) => (await db.runAsync(sql, ...p)).lastInsertRowId;
+
+    const cat = new Map((await db.getAllAsync<{ id: number; name: string }>('SELECT id, name FROM category')).map((c) => [c.name.toLowerCase(), c.id]));
+    for (const c of plan.categoriesNeeded) {
+      if (!cat.has(c.name.toLowerCase()))
+        cat.set(c.name.toLowerCase(), await ins('INSERT INTO category (name, kind, sort) VALUES (?, ?, (SELECT COALESCE(MAX(sort), 0) + 1 FROM category))', c.name, c.kind));
+    }
+
+    for (const i of plan.incomes) await ins('INSERT INTO income (month, concept, budget, amount) VALUES (?, ?, ?, ?)', i.month, i.concept, i.budget, i.amount);
+    const bills: number[] = [];
+    for (const b of plan.bills)
+      bills.push(await ins('INSERT INTO bill (concept, kind, budget, start_month, end_month) VALUES (?, ?, ?, ?, ?)', b.concept, b.kind, b.budget, b.start_month, b.end_month));
+    for (const p of plan.payments)
+      await ins('INSERT INTO bill_payment (bill_id, month, amount, date, paid) VALUES (?, ?, ?, ?, ?)', bills[p.bill], p.month, p.amount, p.date, p.paid);
+    for (const e of plan.expenses)
+      await ins('INSERT INTO expense (date, concept, amount, category_id) VALUES (?, ?, ?, ?)', e.date, e.concept, e.amount, e.category ? (cat.get(e.category.toLowerCase()) ?? null) : null);
+    const goals: number[] = [];
+    for (const g of plan.goals) goals.push(await ins('INSERT INTO savings_goal (name, target, min_monthly, initial) VALUES (?, ?, ?, ?)', g.name, g.target, g.min_monthly, g.initial));
+    const invs: number[] = [];
+    for (const v of plan.investments)
+      invs.push(await ins('INSERT INTO investment (name, initial, monthly, current_value, value_date) VALUES (?, ?, ?, ?, ?)', v.name, v.initial, v.monthly, v.current_value, v.value_date));
+    for (const d of plan.debts)
+      await ins('INSERT INTO debt (name, principal, min_payment, annual_rate, start_date) VALUES (?, ?, ?, ?, ?)', d.name, d.principal, d.min_payment, d.annual_rate, d.start_date);
+    for (const c of plan.contributions)
+      await ins('INSERT INTO contribution (date, kind, target_id, amount) VALUES (?, ?, ?, ?)', c.date, c.kind, (c.kind === 'savings' ? goals : invs)[c.target], c.amount);
+    if (plan.currency) await setSetting(db, 'currency', plan.currency);
+  });
+
+/** Restaura una copia JSON: valida antes de tocar nada y reemplaza TODAS las tablas (ids originales) en una transacción. */
+export const restoreBackup = (db: SQLiteDatabase, json: unknown) =>
+  tx(db, async () => {
+    const v = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+    const backup = validateBackup(json, BACKUP_TABLES, v?.user_version ?? 0);
+    for (const t of [...BACKUP_TABLES].reverse()) await db.runAsync(`DELETE FROM ${t}`);
+    for (const t of BACKUP_TABLES)
+      for (const row of backup.tables[t]) {
+        const cols = Object.keys(row);
+        if (!cols.length) continue;
+        await db.runAsync(`INSERT INTO ${t} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`, ...cols.map((c) => row[c]));
+      }
   });
 
 /** Movimientos para el CSV: [fecha, tipo, concepto, categoría/destino, importe en céntimos]. */

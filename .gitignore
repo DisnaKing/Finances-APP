@@ -43,3 +43,5 @@ yarn-error.*
 # mny
 *.xlsx
 dist*/
+tests/fixtures/
+*.csv

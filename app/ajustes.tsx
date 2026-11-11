@@ -1,7 +1,9 @@
 import { useCallback, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Dialog, Divider, HelperText, List, Portal, SegmentedButtons, Text, TextInput, useTheme } from 'react-native-paper';
 import { useFocusEffect } from 'expo-router';
+import * as DocumentPicker from 'expo-document-picker';
+import { File } from 'expo-file-system';
 import { useSQLiteContext } from 'expo-sqlite';
 import { AmountField } from '@/src/components/AmountField';
 import { ConfirmDialog } from '@/src/components/ConfirmDialog';
@@ -10,6 +12,7 @@ import { useGuard } from '@/src/components/useGuard';
 import { useKeyboardHeight } from '@/src/components/useKeyboardHeight';
 import * as q from '@/src/db/queries';
 import type { Kind } from '@/src/lib/calc';
+import { NOT_BUDGET, parseWorkbook, validateBackup } from '@/src/lib/importXlsx';
 import { backupName, toCsv } from '@/src/lib/export';
 import { centsToInput, formatMoney, parseAmount } from '@/src/lib/money';
 import { monthName, today } from '@/src/lib/month';
@@ -19,6 +22,19 @@ type Bill = Awaited<ReturnType<typeof q.listAllBills>>[number];
 type Dlg = { t: 'cat'; cat: q.Category | null } | { t: 'bill'; bill: Bill } | null;
 
 const DUP_MSG = 'Ya existe una categoría con ese nombre';
+
+type Pending = { title: string; lines: string[]; warnings: string[]; diffs: string[]; apply: () => Promise<string> };
+const XLSX_TYPES = ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel', 'application/octet-stream'];
+const READ_ERR = 'No se pudo leer el archivo.';
+
+/** Elige un archivo y devuelve sus bytes (null si se cancela). */
+async function pickBytes(type: string[]): Promise<ArrayBuffer | null> {
+  const r = await DocumentPicker.getDocumentAsync({ type, copyToCacheDirectory: true });
+  if (r.canceled) return null;
+  const a = r.assets[0];
+  if (Platform.OS === 'web') return a.file ? a.file.arrayBuffer() : (await fetch(a.uri)).arrayBuffer();
+  return new File(a.uri).arrayBuffer();
+}
 
 const pctNum = (t: string) => (/^\d{1,3}$/.test(t.trim()) && Number(t) <= 100 ? Number(t) : null);
 
@@ -135,6 +151,9 @@ export default function Ajustes() {
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState(false);
   const [expErr, setExpErr] = useState('');
+  const [impErr, setImpErr] = useState('');
+  const [impOk, setImpOk] = useState('');
+  const [pending, setPending] = useState<Pending | null>(null);
   const [busy, run] = useGuard();
   const seq = useRef(0);
 
@@ -183,6 +202,77 @@ export default function Ajustes() {
       } catch (e) {
         console.error(e);
         setExpErr('No se pudo exportar el archivo.');
+      }
+    });
+
+  const fail = (e: unknown, fallback: string) => {
+    console.error(e);
+    setImpErr(e instanceof Error && e.message ? e.message : fallback);
+  };
+  const start = (type: string[], prepare: (buf: ArrayBuffer) => Promise<Pending>) =>
+    run(async () => {
+      setImpErr('');
+      setImpOk('');
+      let buf: ArrayBuffer | null;
+      try {
+        buf = await pickBytes(type);
+      } catch (e) {
+        return fail(e, READ_ERR);
+      }
+      if (!buf) return;
+      try {
+        setPending(await prepare(buf));
+      } catch (e) {
+        fail(e, READ_ERR);
+      }
+    });
+
+  const pickExcel = () =>
+    start(XLSX_TYPES, async (buf) => {
+      let plan;
+      try {
+        const XLSX = await import('xlsx');
+        plan = parseWorkbook(XLSX.read(new Uint8Array(buf), { type: 'array', cellNF: true }));
+      } catch (e) {
+        throw e instanceof Error && e.message === NOT_BUDGET ? e : new Error(NOT_BUDGET);
+      }
+      const n = (x: unknown[], s: string) => `${x.length} ${s}`;
+      return {
+        title: 'Importar Excel',
+        lines: [
+          n(plan.months, 'meses'), n(plan.bills, 'facturas'), n(plan.expenses, 'gastos'), n(plan.goals, 'metas'),
+          n(plan.investments, 'inversiones'), n(plan.debts, 'deudas'), n(plan.contributions, 'aportaciones'),
+        ],
+        warnings: plan.warnings,
+        diffs: plan.discrepancies.map((d) => `${d.month ? monthName(d.month) + ': ' : ''}${d.field} (diferencia ${formatMoney(d.diff, cur)})`),
+        apply: async () => { await q.applyImport(db, plan); return 'Excel importado.'; },
+      };
+    });
+
+  const pickBackup = () =>
+    start(['application/json', 'text/plain', 'application/octet-stream'], async (buf) => {
+      const json = JSON.parse(new TextDecoder().decode(buf));
+      // Valida ya (esquema máximo abierto); restoreBackup vuelve a validar con el real antes de tocar nada.
+      const b = validateBackup(json, q.BACKUP_TABLES, Number.MAX_SAFE_INTEGER);
+      return {
+        title: 'Restaurar copia',
+        lines: q.BACKUP_TABLES.map((t) => `${t}: ${b.tables[t].length}`),
+        warnings: [],
+        diffs: [],
+        apply: async () => { await q.restoreBackup(db, json); return 'Copia restaurada.'; },
+      };
+    });
+
+  const confirmImport = () =>
+    run(async () => {
+      if (!pending) return;
+      try {
+        setImpOk(await pending.apply());
+        setPending(null);
+        await load();
+      } catch (e) {
+        setPending(null);
+        fail(e, 'No se pudo importar; no se ha cambiado nada.');
       }
     });
 
@@ -250,9 +340,35 @@ export default function Ajustes() {
         <Button icon="download" disabled={busy} onPress={() => exportAs('json')}>Copia de seguridad (JSON)</Button>
         <Button icon="table" disabled={busy} onPress={() => exportAs('csv')}>Movimientos (CSV)</Button>
         <HelperText type="error" visible={expErr !== ''}>{expErr}</HelperText>
+
+        <Divider style={styles.div} />
+        <Text variant="titleMedium">Importar</Text>
+        <Button icon="file-excel" disabled={busy} accessibilityLabel="Importar Excel" onPress={pickExcel}>Importar Excel (.xlsx)</Button>
+        <Button icon="backup-restore" disabled={busy} accessibilityLabel="Restaurar copia de seguridad" onPress={pickBackup}>Restaurar copia (JSON)</Button>
+        <HelperText type="error" visible={impErr !== ''}>{impErr}</HelperText>
+        <HelperText type="info" visible={impOk !== ''}>{impOk}</HelperText>
       </ScrollView>
 
       <Portal>
+        {pending && (
+          <Dialog visible onDismiss={() => !busy && setPending(null)}>
+            <Dialog.Title>{pending.title}</Dialog.Title>
+            <Dialog.ScrollArea>
+              <ScrollView>
+                {pending.lines.map((l) => <Text key={l} variant="bodyMedium">{l}</Text>)}
+                {pending.warnings.length > 0 && <Text variant="labelLarge" style={styles.sec}>Avisos</Text>}
+                {pending.warnings.map((w, i) => <Text key={i} variant="bodySmall">{w}</Text>)}
+                {pending.diffs.length > 0 && <Text variant="labelLarge" style={styles.sec}>Diferencias con el Excel</Text>}
+                {pending.diffs.map((d, i) => <Text key={i} variant="bodySmall">{d}</Text>)}
+                <Text variant="bodyMedium" style={styles.sec}>Se reemplazarán todos los datos actuales. Haz antes una copia de seguridad.</Text>
+              </ScrollView>
+            </Dialog.ScrollArea>
+            <Dialog.Actions>
+              <Button disabled={busy} onPress={() => setPending(null)}>Cancelar</Button>
+              <Button disabled={busy} onPress={confirmImport}>Importar</Button>
+            </Dialog.Actions>
+          </Dialog>
+        )}
         {dlg?.t === 'cat' && <CategoryDialog cat={dlg.cat} names={cats.map((x) => x.name)} onClose={close} />}
         {dlg?.t === 'bill' && <BillDialog bill={dlg.bill} onClose={close} />}
       </Portal>
@@ -267,4 +383,5 @@ const styles = StyleSheet.create({
   pct: { flex: 1 },
   div: { marginVertical: 16 },
   seg: { marginVertical: 8 },
+  sec: { marginTop: 12 },
 });

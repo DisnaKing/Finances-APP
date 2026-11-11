@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Chip, Dialog, HelperText, Portal, Text, TextInput, useTheme } from 'react-native-paper';
-import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
+import { DateField, validDate } from '@/src/components/DateField';
 import { useMonth } from '@/src/components/MonthContext';
 import { useGuard } from '@/src/components/useGuard';
 import * as q from '@/src/db/queries';
@@ -18,10 +18,6 @@ const OPS = [
   ['(', '('],
   [')', ')'],
 ] as const;
-
-const ISO = /^\d{4}-\d{2}-\d{2}$/;
-const validDate = (s: string) => ISO.test(s) && !isNaN(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
-const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 export default function Gasto() {
   const db = useSQLiteContext();
@@ -94,17 +90,6 @@ export default function Gasto() {
     setAmount(r.text);
     amountRef.current?.focus();
   };
-  const pickDate = () =>
-    DateTimePickerAndroid.open({
-      value: dateOk ? new Date(`${date}T12:00:00`) : new Date(),
-      mode: 'date',
-      onChange: (_e, d) => d && setDate(iso(d)),
-    });
-  const yesterday = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    return iso(d);
-  })();
 
   return (
     <View style={[styles.flex, { backgroundColor: c.background }]}>
@@ -161,17 +146,7 @@ export default function Gasto() {
 
         <TextInput mode="outlined" label="Concepto (opcional)" value={concept} onChangeText={setConcept} style={styles.label} />
 
-        <Text variant="labelLarge" style={styles.label}>Fecha</Text>
-        <View style={styles.chips}>
-          <Chip selected={date === today()} onPress={() => setDate(today())}>Hoy</Chip>
-          <Chip selected={date === yesterday} onPress={() => setDate(yesterday)}>Ayer</Chip>
-        </View>
-        {Platform.OS === 'web' ? (
-          <TextInput mode="outlined" dense label="YYYY-MM-DD" value={date} onChangeText={setDate} error={!dateOk} style={styles.label} />
-        ) : (
-          <Button mode="outlined" icon="calendar" onPress={pickDate} style={styles.label}>{date}</Button>
-        )}
-        <HelperText type="error" visible={!dateOk}>Fecha no válida (YYYY-MM-DD)</HelperText>
+        <DateField value={date} onChange={setDate} />
 
         <Button mode="contained" onPress={save} disabled={!canSave} style={styles.label}>Guardar</Button>
         {editId !== null && (

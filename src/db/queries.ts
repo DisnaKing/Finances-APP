@@ -220,3 +220,74 @@ export async function monthInput(db: SQLiteDatabase, month: string): Promise<Mon
     plan: plan ?? undefined,
   };
 }
+
+// --- Ahorro e inversión ---
+
+export type ContribKind = 'savings' | 'investment' | 'debt';
+export type Goal = { id: number; name: string; target: number; min_monthly: number; initial: number; contrib: number };
+export type Investment = {
+  id: number;
+  name: string;
+  initial: number;
+  monthly: number;
+  current_value: number;
+  value_date: string | null;
+  contrib: number;
+};
+export type Contribution = { id: number; date: string; kind: ContribKind; target_id: number; amount: number; target_name: string | null };
+
+const contribSum = (kind: ContribKind, table: string) =>
+  `(SELECT COALESCE(SUM(amount), 0) FROM contribution WHERE kind = '${kind}' AND target_id = ${table}.id) AS contrib`;
+
+export const listGoals = (db: SQLiteDatabase) =>
+  db.getAllAsync<Goal>(`SELECT *, ${contribSum('savings', 'savings_goal')} FROM savings_goal ORDER BY id`);
+
+export const addGoal = (db: SQLiteDatabase, name: string, target: number, min_monthly: number, initial: number) =>
+  db.runAsync('INSERT INTO savings_goal (name, target, min_monthly, initial) VALUES (?, ?, ?, ?)', name, target, min_monthly, initial);
+
+export const updateGoal = (db: SQLiteDatabase, id: number, name: string, target: number, min_monthly: number, initial: number) =>
+  db.runAsync('UPDATE savings_goal SET name = ?, target = ?, min_monthly = ?, initial = ? WHERE id = ?', name, target, min_monthly, initial, id);
+
+// contribution.target_id no es FK (polimórfico): la cascada es manual y en la misma transacción.
+export const deleteGoal = (db: SQLiteDatabase, id: number) =>
+  tx(db, async () => {
+    await db.runAsync("DELETE FROM contribution WHERE kind = 'savings' AND target_id = ?", id);
+    await db.runAsync('DELETE FROM savings_goal WHERE id = ?', id);
+  });
+
+export const listInvestments = (db: SQLiteDatabase) =>
+  db.getAllAsync<Investment>(`SELECT *, ${contribSum('investment', 'investment')} FROM investment ORDER BY id`);
+
+export const addInvestment = (db: SQLiteDatabase, name: string, initial: number, monthly: number) =>
+  db.runAsync('INSERT INTO investment (name, initial, monthly) VALUES (?, ?, ?)', name, initial, monthly);
+
+export const updateInvestment = (db: SQLiteDatabase, id: number, name: string, initial: number, monthly: number) =>
+  db.runAsync('UPDATE investment SET name = ?, initial = ?, monthly = ? WHERE id = ?', name, initial, monthly, id);
+
+export const deleteInvestment = (db: SQLiteDatabase, id: number) =>
+  tx(db, async () => {
+    await db.runAsync("DELETE FROM contribution WHERE kind = 'investment' AND target_id = ?", id);
+    await db.runAsync('DELETE FROM investment WHERE id = ?', id);
+  });
+
+export const updateInvestmentValue = (db: SQLiteDatabase, id: number, cents: number, date: string) =>
+  db.runAsync('UPDATE investment SET current_value = ?, value_date = ? WHERE id = ?', cents, date, id);
+
+/** Aportaciones de un tipo (opcionalmente de un destino), más recientes primero. `target_name` solo para savings/investment. */
+export const listContributions = (db: SQLiteDatabase, kind: ContribKind, targetId?: number) =>
+  db.getAllAsync<Contribution>(
+    `SELECT c.*, COALESCE(g.name, i.name) AS target_name FROM contribution c
+     LEFT JOIN savings_goal g ON c.kind = 'savings' AND g.id = c.target_id
+     LEFT JOIN investment i ON c.kind = 'investment' AND i.id = c.target_id
+     WHERE c.kind = ?${targetId === undefined ? '' : ' AND c.target_id = ?'}
+     ORDER BY c.date DESC, c.id DESC`,
+    ...(targetId === undefined ? [kind] : [kind, targetId]),
+  );
+
+export const addContribution = (db: SQLiteDatabase, kind: ContribKind, targetId: number, date: string, amount: number) =>
+  db.runAsync('INSERT INTO contribution (date, kind, target_id, amount) VALUES (?, ?, ?, ?)', date, kind, targetId, amount);
+
+export const updateContribution = (db: SQLiteDatabase, id: number, date: string, amount: number) =>
+  db.runAsync('UPDATE contribution SET date = ?, amount = ? WHERE id = ?', date, amount, id);
+
+export const deleteContribution = (db: SQLiteDatabase, id: number) => db.runAsync('DELETE FROM contribution WHERE id = ?', id);

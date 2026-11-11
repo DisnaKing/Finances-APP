@@ -59,3 +59,29 @@ export function billVisible(
 ): boolean {
   return hasPayment || (b.start_month <= month && (b.end_month === null || b.end_month >= month));
 }
+
+// --- Ahorro e inversión ---
+
+/** Meta de ahorro: total = inicial + aportaciones; `monthsLeft` null si no hay aportación mínima o ya se alcanzó. */
+export function goalStats(g: { target: number; min_monthly: number; initial: number }, contribSum: number) {
+  const total = g.initial + contribSum;
+  const left = Math.max(g.target - total, 0);
+  const progress = g.target > 0 ? Math.min(total / g.target, 1) : 0;
+  const monthsLeft = g.min_monthly > 0 && left > 0 ? Math.ceil(left / g.min_monthly) : null;
+  return { total, left, progress, monthsLeft };
+}
+
+/** Inversión: aportado = inicial + aportaciones; rendimiento = valor actual − aportado. */
+export function investmentStats(i: { initial: number; current_value: number }, contribSum: number) {
+  const contributed = i.initial + contribSum;
+  const gain = i.current_value - contributed;
+  return { contributed, gain, gainPct: contributed > 0 ? gain / contributed : 0 };
+}
+
+/** Suma de inversiones ya calculadas (aportado/valor) y rendimiento total. */
+export function investmentTotals(xs: { contributed: number; value: number }[]) {
+  const contributed = sum(xs.map((x) => x.contributed));
+  const value = sum(xs.map((x) => x.value));
+  const gain = value - contributed;
+  return { contributed, value, gain, gainPct: contributed > 0 ? gain / contributed : 0 };
+}

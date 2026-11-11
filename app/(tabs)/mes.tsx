@@ -5,7 +5,6 @@ import {
   Checkbox,
   Dialog,
   FAB,
-  HelperText,
   IconButton,
   List,
   Portal,
@@ -16,6 +15,8 @@ import {
 } from 'react-native-paper';
 import { router, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
+import { AmountField } from '@/src/components/AmountField';
+import { ConfirmDialog } from '@/src/components/ConfirmDialog';
 import { useMonth } from '@/src/components/MonthContext';
 import { MonthSelector } from '@/src/components/MonthSelector';
 import { useGuard } from '@/src/components/useGuard';
@@ -33,26 +34,6 @@ type Dlg =
   | { t: 'bill'; bill: Bill | null }
   | { t: 'confirm'; msg: string; ok: () => Promise<unknown> }
   | null;
-
-function AmountField(p: { label: string; value: string; onChange: (v: string) => void }) {
-  const bad = p.value.trim() !== '' && parseAmount(p.value) === null;
-  return (
-    <View>
-      <TextInput
-        mode="outlined"
-        dense
-        label={p.label}
-        value={p.value}
-        onChangeText={p.onChange}
-        error={bad}
-        keyboardType="decimal-pad"
-        autoCorrect={false}
-        autoCapitalize="none"
-      />
-      <HelperText type="error" visible={bad}>Importe no válido</HelperText>
-    </View>
-  );
-}
 
 function IncomeDialog({ inc, month, onClose }: { inc: Income | null; month: string; onClose: (changed: boolean) => void }) {
   const db = useSQLiteContext();
@@ -170,31 +151,6 @@ function BillDialog(p: {
       <Dialog.Actions>
         <Button onPress={() => p.onClose(false)}>Cancelar</Button>
         <Button onPress={save} disabled={!ok}>Guardar</Button>
-      </Dialog.Actions>
-    </Dialog>
-  );
-}
-
-function ConfirmDialog({ msg, ok, onClose }: { msg: string; ok: () => Promise<unknown>; onClose: (changed: boolean) => void }) {
-  const c = useTheme().colors;
-  const [busy, run] = useGuard();
-  return (
-    <Dialog visible onDismiss={() => onClose(false)}>
-      <Dialog.Content><Text variant="bodyMedium">{msg}</Text></Dialog.Content>
-      <Dialog.Actions>
-        <Button onPress={() => onClose(false)}>Cancelar</Button>
-        <Button
-          textColor={c.error}
-          disabled={busy}
-          onPress={() =>
-            run(async () => {
-              await ok();
-              onClose(true);
-            }, true)
-          }
-        >
-          Confirmar
-        </Button>
       </Dialog.Actions>
     </Dialog>
   );

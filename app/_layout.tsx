@@ -4,6 +4,7 @@ import { SQLiteProvider } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
 import { useColorScheme } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
+import { MonthProvider } from '@/src/components/MonthContext';
 import { migrate } from '@/src/db/schema';
 import { darkTheme, lightTheme, navDarkTheme, navLightTheme } from '@/src/theme';
 
@@ -12,18 +13,20 @@ export default function RootLayout() {
   // SQLiteProvider va fuera para que los portales de Paper (Dialog/Menu) puedan usar useSQLiteContext.
   return (
     <SQLiteProvider databaseName="mny.db" onInit={migrate} onError={(e) => console.error('SQLite', e)}>
-      <PaperProvider theme={dark ? darkTheme : lightTheme}>
-        <ThemeProvider value={dark ? navDarkTheme : navLightTheme}>
-          <StatusBar style={dark ? 'light' : 'dark'} />
-          <Stack>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="gasto" options={{ presentation: 'modal', title: 'Gasto' }} />
-            <Stack.Screen name="deudas" options={{ title: 'Deudas' }} />
-            <Stack.Screen name="anual" options={{ title: 'Anual' }} />
-            <Stack.Screen name="ajustes" options={{ title: 'Ajustes' }} />
-          </Stack>
-        </ThemeProvider>
-      </PaperProvider>
+      <MonthProvider>
+        <PaperProvider theme={dark ? darkTheme : lightTheme}>
+          <ThemeProvider value={dark ? navDarkTheme : navLightTheme}>
+            <StatusBar style={dark ? 'light' : 'dark'} />
+            <Stack>
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="gasto" options={{ presentation: 'modal', title: 'Gasto' }} />
+              <Stack.Screen name="deudas" options={{ title: 'Deudas' }} />
+              <Stack.Screen name="anual" options={{ title: 'Anual' }} />
+              <Stack.Screen name="ajustes" options={{ title: 'Ajustes' }} />
+            </Stack>
+          </ThemeProvider>
+        </PaperProvider>
+      </MonthProvider>
     </SQLiteProvider>
   );
 }

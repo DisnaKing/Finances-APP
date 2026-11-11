@@ -1,19 +1,21 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { billVisible, debtActiveIn, reactivationPlan, type Kind, type MonthInput, type Pct } from '@/src/lib/calc';
-import { validateBackup, type ImportPlan } from '@/src/lib/importXlsx';
+import { norm, validateBackup, type ImportPlan } from '@/src/lib/importXlsx';
 import { addMonths, currentMonth, monthOf, monthRange, today } from '@/src/lib/month';
 
 // Solo runAsync/getAllAsync/withTransactionAsync: withExclusiveTransactionAsync usa otra conexión
 // con foreign_keys OFF y no dispararía las cascadas.
 
-// BEGIN/COMMIT sobre una única conexión: dos transacciones solapadas se pisan (la 2ª BEGIN falla y hace ROLLBACK
-// de la 1ª). Se serializan en cola.
+// BEGIN/COMMIT sobre una única conexión: dos transacciones solapadas se pisan, y una escritura suelta
+// durante una transacción se colaría dentro de ella. TODA escritura pasa por esta cola.
+// Nunca llamar a write()/tx() dentro del callback de una tx (interbloqueo): usar db.runAsync directo.
 let queue: Promise<unknown> = Promise.resolve();
-const tx = (db: SQLiteDatabase, fn: () => Promise<void>) => {
-  const p = queue.then(() => db.withTransactionAsync(fn));
+const write = <T>(fn: () => Promise<T>): Promise<T> => {
+  const p = queue.then(fn);
   queue = p.catch(() => {});
   return p;
 };
+const tx = (db: SQLiteDatabase, fn: () => Promise<void>) => write(() => db.withTransactionAsync(fn));
 
 /** Fecha de un pago nuevo: hoy si cae en `month`, si no el día 1. */
 const paymentDate = (month: string) => (monthOf(today()) === month ? today() : `${month}-01`);
@@ -413,10 +415,10 @@ export const applyImport = (db: SQLiteDatabase, plan: ImportPlan) =>
     for (const t of WIPE) await db.runAsync(`DELETE FROM ${t}`);
     const ins = async (sql: string, ...p: (string | number | null)[]) => (await db.runAsync(sql, ...p)).lastInsertRowId;
 
-    const cat = new Map((await db.getAllAsync<{ id: number; name: string }>('SELECT id, name FROM category')).map((c) => [c.name.toLowerCase(), c.id]));
+    const cat = new Map((await db.getAllAsync<{ id: number; name: string }>('SELECT id, name FROM category')).map((c) => [norm(c.name), c.id]));
     for (const c of plan.categoriesNeeded) {
-      if (!cat.has(c.name.toLowerCase()))
-        cat.set(c.name.toLowerCase(), await ins('INSERT INTO category (name, kind, sort) VALUES (?, ?, (SELECT COALESCE(MAX(sort), 0) + 1 FROM category))', c.name, c.kind));
+      if (!cat.has(norm(c.name)))
+        cat.set(norm(c.name), await ins('INSERT INTO category (name, kind, sort) VALUES (?, ?, (SELECT COALESCE(MAX(sort), 0) + 1 FROM category))', c.name, c.kind));
     }
 
     for (const i of plan.incomes) await ins('INSERT INTO income (month, concept, budget, amount) VALUES (?, ?, ?, ?)', i.month, i.concept, i.budget, i.amount);
@@ -426,7 +428,7 @@ export const applyImport = (db: SQLiteDatabase, plan: ImportPlan) =>
     for (const p of plan.payments)
       await ins('INSERT INTO bill_payment (bill_id, month, amount, date, paid) VALUES (?, ?, ?, ?, ?)', bills[p.bill], p.month, p.amount, p.date, p.paid);
     for (const e of plan.expenses)
-      await ins('INSERT INTO expense (date, concept, amount, category_id) VALUES (?, ?, ?, ?)', e.date, e.concept, e.amount, e.category ? (cat.get(e.category.toLowerCase()) ?? null) : null);
+      await ins('INSERT INTO expense (date, concept, amount, category_id) VALUES (?, ?, ?, ?)', e.date, e.concept, e.amount, e.category ? (cat.get(norm(e.category)) ?? null) : null);
     const goals: number[] = [];
     for (const g of plan.goals) goals.push(await ins('INSERT INTO savings_goal (name, target, min_monthly, initial) VALUES (?, ?, ?, ?)', g.name, g.target, g.min_monthly, g.initial));
     const invs: number[] = [];

@@ -13,7 +13,7 @@ export type ImportPlan = {
   incomes: { month: string; concept: string; budget: number; amount: number }[];
   expenses: { date: string; concept: string; amount: number; category: string | null }[];
   goals: { name: string; target: number; min_monthly: number; initial: number }[];
-  investments: { name: string; initial: number; monthly: number; current_value: number; value_date: string }[];
+  investments: { name: string; initial: number; monthly: number; current_value: number; value_date: string | null }[]; // value_date null = sin valorar
   debts: { name: string; principal: number; min_payment: number; annual_rate: number; start_date: string }[];
   contributions: { date: string; kind: 'savings' | 'investment'; target: number; amount: number }[]; // target = índice en goals/investments
   categoriesNeeded: { name: string; kind: 'needs' | 'wants' }[];
@@ -25,42 +25,64 @@ const MONTHS = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', '
 const DEBT = 'PAGO DEUDAS | BOLA DE NIEVE';
 const GOAL = 'FONDO DE AHORROS';
 const INV = 'INVERSIONES';
+/** Clave de comparación de categorías: sin acentos ni mayúsculas (NFD sin marcas). */
+export const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 // Mismas categorías "necesidades" que la semilla (schema.ts); el resto son deseos.
-const NEEDS_CATS = new Set(['mercado', 'transporte', 'salud', 'hogar', 'educación', 'mascotas']);
+const NEEDS_CATS = new Set(['mercado', 'transporte', 'salud', 'hogar', 'educación', 'mascotas'].map(norm));
 const KINDS: Record<string, K> = { necesidades: 'needs', deseos: 'wants', ahorros: 'savings' };
+const SETTINGS_KEYS = ['currency', 'pct_needs', 'pct_wants', 'pct_savings']; // semilla de schema.ts
+const lc = (s: string) => s.toLowerCase();
 
-const cell = (ws: WorkSheet, a: string): unknown => ws[a]?.v;
 const str = (v: unknown) => (v == null ? '' : String(v).trim());
+/** Número o texto con importe ("1.234,56 €", "5 %"); el último separador es el decimal. */
 const num = (v: unknown): number | null => {
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
-  const s = typeof v === 'string' ? v.trim().replace(',', '.') : '';
-  return s && Number.isFinite(Number(s)) ? Number(s) : null;
+  if (typeof v !== 'string') return null;
+  let s = v.replace(/[\s€$£¥%]/g, ''); // \s incluye NBSP
+  if (!/^[+-]?[\d.,]+$/.test(s)) return null;
+  const d = Math.max(s.lastIndexOf(','), s.lastIndexOf('.'));
+  if (d >= 0) s = s.slice(0, d).replace(/[.,]/g, '') + '.' + s.slice(d + 1);
+  return s !== '.' && Number.isFinite(Number(s)) ? Number(s) : null;
 };
 const cents = (v: unknown): number | null => {
   const n = num(v);
   return n === null ? null : Math.round(n * 100);
 };
-/** Serie de Excel (días desde 1899-12-30), Date o texto ISO -> YYYY-MM-DD. */
-const iso = (v: unknown): string | null => {
-  if (typeof v === 'number' && v >= 1 && v < 100000) return new Date((Math.floor(v) - 25569) * 86400000).toISOString().slice(0, 10);
-  if (v instanceof Date && !isNaN(+v)) return v.toISOString().slice(0, 10);
-  const m = typeof v === 'string' ? /^(\d{4}-\d{2}-\d{2})/.exec(v.trim()) : null;
-  return m ? m[1] : null;
+const ymd = (y: number, m: number, d: number) => {
+  const t = new Date(Date.UTC(y, m - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d
+    ? `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+    : null;
+};
+/** Serie de Excel (>= 367; días desde 1899-12-30, o 1904 si `d1904`), Date, ISO o DD/MM/AAAA | D/M/AA -> YYYY-MM-DD. */
+const iso = (v: unknown, d1904 = false): string | null => {
+  if (typeof v === 'number') {
+    if (!(v >= 367 && v < 100000)) return null; // series bajas: casi seguro un número, no una fecha
+    return new Date((Math.floor(v) + (d1904 ? 1462 : 0) - 25569) * 86400000).toISOString().slice(0, 10);
+  }
+  if (v instanceof Date) return isNaN(+v) ? null : v.toISOString().slice(0, 10);
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(t);
+  if (m) return ymd(+m[1], +m[2], +m[3]);
+  m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4}|\d{2})$/.exec(t);
+  return m ? ymd(m[3].length === 2 ? 2000 + +m[3] : +m[3], +m[2], +m[1]) : null;
 };
 const isPaid = (v: unknown) => v === true || (typeof v === 'string' && /^(✓|✔|☑|✅|x|true|1)$/i.test(v.trim()));
 const localToday = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
-const lc = (s: string) => s.toLowerCase();
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 
 /** Convierte el libro en un plan de importación. Lanza NOT_BUDGET si falta una hoja o no hay meses con datos. */
 export function parseWorkbook(wb: WorkBook, now: string = localToday()): ImportPlan {
   const sheets = new Map(wb.SheetNames.map((n) => [n.trim().toUpperCase(), wb.Sheets[n]]));
+  const names = new Map<WorkSheet, string>();
   const get = (n: string) => {
     const s = sheets.get(n);
     if (!s) throw new Error(NOT_BUDGET);
+    names.set(s, n);
     return s;
   };
   get('ANUAL');
@@ -73,16 +95,47 @@ export function parseWorkbook(wb: WorkBook, now: string = localToday()): ImportP
     currency: null, months: [], bills: [], payments: [], incomes: [], expenses: [], goals: [], investments: [],
     debts: [], contributions: [], categoriesNeeded: [], warnings: [], discrepancies: [],
   };
-  const warn = (s: string) => plan.warnings.push(s);
+  const warn = (s: string) => {
+    if (!plan.warnings.includes(s)) plan.warnings.push(s);
+  };
+  const d1904 = !!wb.Workbook?.WBProps?.date1904;
+
+  /** Valor de la celda; las celdas de error (#REF!, #DIV/0!...) se ignoran con aviso. */
+  const cell = (ws: WorkSheet, a: string): unknown => {
+    const c = ws[a];
+    if (c?.t === 'e') {
+      warn(`${names.get(ws)}!${a}: celda con error, ignorada`);
+      return undefined;
+    }
+    return c?.v;
+  };
+  const money = (ws: WorkSheet, a: string, ctx: string) => {
+    const v = cell(ws, a);
+    const c = cents(v);
+    if (c === null && str(v)) warn(`${ctx}: importe no válido en ${names.get(ws)}!${a}, ignorado`);
+    return c;
+  };
+  const dateOf = (ws: WorkSheet, a: string) => iso(cell(ws, a), d1904);
+  const dt = (ws: WorkSheet, a: string, ctx: string) => {
+    const v = cell(ws, a);
+    const d = iso(v, d1904);
+    if (d === null && str(v)) warn(`${ctx}: fecha no válida en ${names.get(ws)}!${a}, ignorada`);
+    return d;
+  };
 
   const y = num(cell(debtWs, 'B4'));
-  const year = y !== null && Number.isInteger(y) && y >= 2000 && y <= 2100 ? y : 2026;
+  const valid = y !== null && Number.isInteger(y) && y >= 2000 && y <= 2100;
+  if (!valid) warn(`Año no indicado o no válido (${DEBT}!B4), se usa 2026`);
+  const year = valid ? y : 2026;
   const cur = cell(debtWs, 'B5');
-  plan.currency = typeof cur === 'string' && cur.trim() ? cur.trim() : null;
+  const curText = typeof cur === 'string' ? cur.trim() : '';
+  if (curText.length > 4) warn(`Moneda "${curText}" no válida (1 a 4 caracteres), se usa €`);
+  plan.currency = curText ? (curText.length > 4 ? '€' : curText) : null;
 
   // --- Meses ---
-  type Group = { concept: string; kind: K; budget: number; first: string; last: string };
-  const groups = new Map<string, Group>();
+  type Group = { concept: string; kind: K; budget: number; first: string; last: string; lastI: number };
+  const groups: Group[] = [];
+  const open = new Map<string, Group>(); // última factura abierta de cada concepto
   const sheetTotals: { month: string; ws: WorkSheet; income: number; bills: number; expenses: number }[] = [];
   const cats = new Map<string, string>();
 
@@ -91,63 +144,69 @@ export function parseWorkbook(wb: WorkBook, now: string = localToday()): ImportP
     const incomes: ImportPlan['incomes'] = [];
     for (let r = 5; r <= 9; r++) {
       const concept = str(cell(ws, `E${r}`));
-      if (concept) incomes.push({ month, concept, budget: cents(cell(ws, `F${r}`)) ?? 0, amount: cents(cell(ws, `G${r}`)) ?? 0 });
+      const ctx = `${month} ingreso "${concept}"`;
+      if (concept) incomes.push({ month, concept, budget: money(ws, `F${r}`, ctx) ?? 0, amount: money(ws, `G${r}`, ctx) ?? 0 });
     }
 
     const seen = new Map<string, number>(); // repetidos del mismo concepto dentro del mes
-    const bills: { key: string; g: Group; amount: number | null; date: string; paid: 0 | 1 }[] = [];
+    const bills: { key: string; concept: string; kind: K; budget: number; amount: number | null; date: string; paid: 0 | 1 }[] = [];
     for (let r = 26; r <= 41; r++) {
       const concept = str(cell(ws, `B${r}`));
       if (!concept) continue;
+      const ctx = `${month} factura "${concept}"`;
       const kindText = str(cell(ws, `E${r}`));
       let kind: K = KINDS[lc(kindText)] ?? 'needs';
       if (kindText && !KINDS[lc(kindText)]) warn(`${month}: tipo de factura desconocido "${kindText}", se usa Necesidades`), (kind = 'needs');
       const n = (seen.get(lc(concept)) ?? 0) + 1;
       seen.set(lc(concept), n);
-      bills.push({
-        key: `${lc(concept)}#${n}`,
-        g: { concept, kind, budget: cents(cell(ws, `C${r}`)) ?? 0, first: month, last: month },
-        amount: cents(cell(ws, `D${r}`)),
-        date: iso(cell(ws, `F${r}`)) ?? `${month}-01`,
-        paid: isPaid(cell(ws, `A${r}`)) ? 1 : 0,
-      });
+      const budget = money(ws, `C${r}`, ctx) ?? 0;
+      const real = money(ws, `D${r}`, ctx);
+      const paid = isPaid(cell(ws, `A${r}`)) ? 1 : 0;
+      // Sin importe real solo hay pago si está marcada (como setBillPaid: importe = presupuesto); un 0 sin marcar no es un pago.
+      const amount = real === null ? (paid ? budget : null) : real !== 0 || paid ? real : null;
+      bills.push({ key: `${lc(concept)}#${n}`, concept, kind, budget, amount, date: dt(ws, `F${r}`, ctx) ?? `${month}-01`, paid });
     }
 
     const expenses: ImportPlan['expenses'] = [];
     for (let r = 26; r <= 45; r++) {
       const concept = str(cell(ws, `I${r}`));
-      const amount = cents(cell(ws, `J${r}`));
+      const amount = money(ws, `J${r}`, `${month} gasto (fila ${r})`);
       if (!amount) continue;
       if (!concept) {
         warn(`${month}: fila ${r} con importe pero sin concepto, ignorada`);
         continue;
       }
-      let date = iso(cell(ws, `L${r}`)) ?? `${month}-01`;
+      let date = dt(ws, `L${r}`, `${month} gasto "${concept}"`) ?? `${month}-01`;
       if (date.slice(0, 7) !== month) {
         warn(`${month}: el gasto "${concept}" tiene fecha de otro mes (${date}), se pone el día 1`);
         date = `${month}-01`;
       }
-      const category = str(cell(ws, `K${r}`)) || null;
-      if (category && !cats.has(lc(category))) cats.set(lc(category), category);
+      const category = str(cell(ws, `K${r}`)).normalize('NFC') || null;
+      if (category && !cats.has(norm(category))) cats.set(norm(category), category);
       expenses.push({ date, concept, amount, category });
     }
 
-    if (!incomes.some((x) => x.amount) && !bills.length && !expenses.length) return; // mes plantilla
+    if (!incomes.some((x) => x.amount) && !bills.some((b) => b.amount !== null) && !expenses.length) return; // mes plantilla
     plan.months.push(month);
     plan.incomes.push(...incomes);
     plan.expenses.push(...expenses);
     for (const b of bills) {
-      let g = groups.get(b.key);
-      if (g) Object.assign(g, { concept: b.g.concept, kind: b.g.kind, budget: b.g.budget, last: month }); // manda el último mes
-      else groups.set(b.key, (g = b.g));
-      if (b.amount !== null) plan.payments.push({ bill: [...groups.keys()].indexOf(b.key), month, amount: b.amount, date: b.date, paid: b.paid });
+      // Misma factura si el mes anterior tenía el concepto con igual tipo y presupuesto; si no, empieza otra.
+      let g = open.get(b.key);
+      if (g && g.lastI === i - 1 && g.kind === b.kind && g.budget === b.budget) Object.assign(g, { concept: b.concept, last: month, lastI: i });
+      else {
+        g = { concept: b.concept, kind: b.kind, budget: b.budget, first: month, last: month, lastI: i };
+        groups.push(g);
+        open.set(b.key, g);
+      }
+      if (b.amount !== null) plan.payments.push({ bill: groups.indexOf(g), month, amount: b.amount, date: b.date, paid: b.paid });
     }
     sheetTotals.push({ month, ws, income: sum(incomes.map((x) => x.amount)), bills: sum(bills.map((b) => b.amount ?? 0)), expenses: sum(expenses.map((e) => e.amount)) });
   });
 
   if (!plan.months.length) throw new Error(NOT_BUDGET);
   const lastMonth = plan.months[plan.months.length - 1];
-  plan.bills = [...groups.values()].map((g) => ({
+  plan.bills = groups.map((g) => ({
     concept: g.concept, kind: g.kind, budget: g.budget, start_month: g.first, end_month: g.last === lastMonth ? null : g.last,
   }));
   plan.categoriesNeeded = [...cats.entries()].map(([k, name]) => ({ name, kind: NEEDS_CATS.has(k) ? 'needs' : 'wants' }));
@@ -157,7 +216,8 @@ export function parseWorkbook(wb: WorkBook, now: string = localToday()): ImportP
   for (let r = 9; r <= 18; r++) {
     const name = str(cell(goalWs, `A${r}`));
     if (!name) continue;
-    plan.goals.push({ name, target: cents(cell(goalWs, `B${r}`)) ?? 0, min_monthly: cents(cell(goalWs, `C${r}`)) ?? 0, initial: cents(cell(goalWs, `D${r}`)) ?? 0 });
+    const ctx = `Meta "${name}"`;
+    plan.goals.push({ name, target: money(goalWs, `B${r}`, ctx) ?? 0, min_monthly: money(goalWs, `C${r}`, ctx) ?? 0, initial: money(goalWs, `D${r}`, ctx) ?? 0 });
     expectedGoal.push(cents(cell(goalWs, `E${r}`)));
   }
 
@@ -166,51 +226,66 @@ export function parseWorkbook(wb: WorkBook, now: string = localToday()): ImportP
   for (let r = 11; r <= 20; r++) {
     const name = str(cell(invWs, `A${r}`));
     if (!name) continue;
+    const ctx = `Inversión "${name}"`;
+    const value = money(invWs, `E${r}`, ctx);
     plan.investments.push({
-      name, initial: cents(cell(invWs, `B${r}`)) ?? 0, monthly: cents(cell(invWs, `C${r}`)) ?? 0,
-      current_value: cents(cell(invWs, `E${r}`)) ?? 0, value_date: now,
+      name, initial: money(invWs, `B${r}`, ctx) ?? 0, monthly: money(invWs, `C${r}`, ctx) ?? 0,
+      current_value: value ?? 0, value_date: value === null ? null : now, // sin valor actual = «Sin valorar»
     });
     expectedInv.push(cents(cell(invWs, `D${r}`)));
   }
 
   // --- Registros de aportaciones ---
   const register = (ws: WorkSheet, from: number, to: number, [cd, cn, ca]: string[], kind: 'savings' | 'investment', targets: { name: string }[]) => {
-    const byName = new Map(targets.map((t, i) => [lc(t.name), i]));
+    const label = kind === 'savings' ? 'Ahorro' : 'Inversión';
+    const byName = new Map(targets.map((t, i) => [norm(t.name), i]));
     for (let r = from; r <= to; r++) {
       const name = str(cell(ws, `${cn}${r}`));
-      const amount = cents(cell(ws, `${ca}${r}`));
+      const amount = money(ws, `${ca}${r}`, label);
       if (!amount) continue;
-      const date = iso(cell(ws, `${cd}${r}`));
-      const target = byName.get(lc(name));
-      if (target === undefined) warn(`${kind === 'savings' ? 'Ahorro' : 'Inversión'}: "${name || '(sin nombre)'}" no coincide con ninguna ${kind === 'savings' ? 'meta' : 'inversión'}, aportación ignorada`);
-      else if (!date) warn(`${kind === 'savings' ? 'Ahorro' : 'Inversión'}: aportación a "${name}" sin fecha válida, ignorada`);
+      const date = dateOf(ws, `${cd}${r}`);
+      const target = byName.get(norm(name));
+      if (target === undefined) warn(`${label}: "${name || '(sin nombre)'}" no coincide con ninguna ${kind === 'savings' ? 'meta' : 'inversión'}, aportación ignorada`);
+      else if (!date) warn(`${label}: aportación a "${name}" sin fecha válida, ignorada`);
       else plan.contributions.push({ date, kind, target, amount });
     }
   };
   register(goalWs, 9, 38, ['L', 'M', 'N'], 'savings', plan.goals);
   register(invWs, 11, 40, ['I', 'J', 'K'], 'investment', plan.investments);
 
+  const outside = plan.contributions.filter((c) => !plan.months.includes(c.date.slice(0, 7))).length;
+  if (outside) warn(`${outside} aportaciones con fecha fuera de los meses importados (se importan igualmente)`);
+
   // La valoración nunca es anterior a su última aportación.
   plan.contributions.filter((c) => c.kind === 'investment').forEach((c) => {
     const inv = plan.investments[c.target];
-    if (c.date > inv.value_date) inv.value_date = c.date;
+    if (inv.value_date !== null && c.date > inv.value_date) inv.value_date = c.date;
   });
 
   // --- Deudas (puede estar vacía) ---
   for (let r = 14; r <= 23; r++) {
     const name = str(cell(debtWs, `A${r}`));
     if (!name) continue;
-    const rate = num(cell(debtWs, `D${r}`)) ?? 0;
+    const ctx = `Deuda "${name}"`;
+    const rv = cell(debtWs, `D${r}`);
+    const rate = num(rv);
+    if (rate === null && str(rv)) warn(`${ctx}: tasa no válida en ${DEBT}!D${r}, se usa 0`);
     plan.debts.push({
-      name, principal: cents(cell(debtWs, `B${r}`)) ?? 0, min_payment: cents(cell(debtWs, `C${r}`)) ?? 0,
-      annual_rate: String(debtWs[`D${r}`]?.z ?? '').includes('%') ? rate * 100 : rate, // 5% se guarda como 0,05
-      start_date: iso(cell(debtWs, `E${r}`)) ?? `${plan.months[0]}-01`,
+      name, principal: money(debtWs, `B${r}`, ctx) ?? 0, min_payment: money(debtWs, `C${r}`, ctx) ?? 0,
+      annual_rate: String(debtWs[`D${r}`]?.z ?? '').includes('%') ? (rate ?? 0) * 100 : rate ?? 0, // 5% se guarda como 0,05
+      start_date: dt(debtWs, `E${r}`, ctx) ?? `${plan.months[0]}-01`,
     });
   }
+  // ponytail: heurística; las columnas F+ de las filas de deudas no están documentadas.
+  const paidByMonth = Object.keys(debtWs).some((a) => {
+    const m = /^([A-Z]+)(\d+)$/.exec(a);
+    return !!m && (m[1].length > 1 || m[1] > 'E') && +m[2] >= 14 && +m[2] <= 23 && debtWs[a]?.t === 'n' && debtWs[a].v !== 0;
+  });
+  if (paidByMonth) warn('La hoja de deudas tiene pagos reales por mes: no se importan, la app usa el pago mínimo');
 
-  // --- Discrepancias: lo calculado con el plan frente a los totales del Excel ---
+  // --- Discrepancias: lo calculado con el plan frente a los totales del Excel (si el Excel los tiene) ---
   const diff = (month: string, field: string, calc: number, sheet: number | null) => {
-    if ((sheet ?? 0) !== calc) plan.discrepancies.push({ month, field, diff: calc - (sheet ?? 0) });
+    if (sheet !== null && sheet !== calc) plan.discrepancies.push({ month, field, diff: calc - sheet });
   };
   const contrib = (kind: string, month: string) => sum(plan.contributions.filter((c) => c.kind === kind && c.date.slice(0, 7) === month).map((c) => c.amount));
   for (const t of sheetTotals) {
@@ -253,10 +328,15 @@ export function validateBackup(json: unknown, tables: readonly string[], maxSche
     for (const row of rows) {
       if (!row || typeof row !== 'object' || Array.isArray(row)) throw new Error(`Fila inválida en "${t}"`);
       for (const [k, v] of Object.entries(row)) {
-        // La clave acaba en una sentencia SQL: solo identificadores.
-        if (!/^\w+$/.test(k) || !(v === null || typeof v === 'string' || typeof v === 'number')) throw new Error(`Dato inválido en "${t}"`);
+        // La clave acaba en una sentencia SQL: solo identificadores. Importes en céntimos = enteros (annual_rate es el único REAL).
+        const okNum = typeof v === 'number' && Number.isFinite(v) && (k === 'annual_rate' || Number.isInteger(v));
+        if (!/^\w+$/.test(k) || !(v === null || typeof v === 'string' || okNum)) throw new Error(`Dato inválido en "${t}"`);
       }
     }
+  }
+  if (tables.includes('settings')) {
+    const have = new Set((j.tables.settings as { key?: unknown }[]).map((r) => r.key));
+    for (const k of SETTINGS_KEYS) if (!have.has(k)) throw new Error(`Falta el ajuste "${k}" en la copia`);
   }
   return j as BackupFile;
 }

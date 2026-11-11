@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx/dist/xlsx.mini.min.js';
 import { monthSummary, type MonthInput } from '../src/lib/calc.ts';
 import { NOT_BUDGET, parseWorkbook, validateBackup, type ImportPlan } from '../src/lib/importXlsx.ts';
 
@@ -88,7 +88,9 @@ test('Excel real: total de cada meta e inversión', { skip: !HAVE }, () => {
 
 test('Excel real: sin avisos y solo la diferencia conocida', { skip: !HAVE }, () => {
   const { plan } = real();
-  assert.ok(plan.warnings.length === 0, `avisos=${plan.warnings.length}`);
+  // Único aviso esperado: aportaciones fechadas fuera de los meses con datos (se importan igualmente).
+  const other = plan.warnings.filter((w) => !/fuera de los meses importados/.test(w));
+  assert.ok(other.length === 0, `avisos inesperados=${other.length}`);
   const got = plan.discrepancies.map((d) => `${d.month}|${d.field.startsWith('Inversión ') ? 'Inversión <activo>' : d.field}|${Math.sign(d.diff)}`).sort();
   assert.deepEqual(got, [...KNOWN].sort());
 });
@@ -106,7 +108,8 @@ const book = (cells: Cells = {}, omit: string[] = []) => {
   }
   return wb;
 };
-const parse = (cells: Cells = {}): ImportPlan => parseWorkbook(book(cells), NOW);
+const YEAR = { 'PAGO DEUDAS | BOLA DE NIEVE': { B4: 2026 } }; // sin año el importador avisa
+const parse = (cells: Cells = {}): ImportPlan => parseWorkbook(book({ ...YEAR, ...cells }), NOW);
 const INC = { E5: 'Sueldo', F5: 1000, G5: 1000 };
 
 test('libro sin una hoja: NOT_BUDGET', () => {
@@ -128,23 +131,79 @@ test('tipo vacío = necesidades; gasto sin fecha = día 1; año 2026 por defecto
   assert.equal(p.warnings.length, 0);
 });
 
-test('factura en varios meses: una factura, un pago por mes, fin según el último mes', () => {
+test('factura que cambia de tipo o importe empieza otra; el hueco también corta', () => {
   const p = parse({
     AGO: { ...INC, B26: 'Luz', C26: 10, D26: 10, E26: 'Necesidades', B27: 'Gym', D27: 20, E27: 'Deseos' },
     SEP: { ...INC, B26: 'Luz', C26: 15, D26: 15, E26: 'Deseos' },
+    NOV: { ...INC, B27: 'Gym', C27: 20, D27: 20, E27: 'Deseos' },
   });
-  assert.equal(p.bills.length, 2);
-  const luz = p.bills.find((b) => b.concept === 'Luz')!;
-  const gym = p.bills.find((b) => b.concept === 'Gym')!;
-  assert.deepEqual([luz.start_month, luz.end_month, luz.budget, luz.kind], ['2026-08', null, 1500, 'wants']);
-  assert.deepEqual([gym.start_month, gym.end_month], ['2026-08', '2026-08']);
-  assert.equal(p.payments.length, 3);
+  const luz = p.bills.filter((b) => b.concept === 'Luz');
+  const gym = p.bills.filter((b) => b.concept === 'Gym');
+  assert.deepEqual(luz.map((b) => [b.start_month, b.end_month, b.budget, b.kind]), [['2026-08', '2026-08', 1000, 'needs'], ['2026-09', '2026-09', 1500, 'wants']]);
+  assert.deepEqual(gym.map((b) => [b.start_month, b.end_month]), [['2026-08', '2026-08'], ['2026-11', null]]);
+  assert.equal(p.payments.length, 4);
 });
 
-test('pagada según la casilla; sin importe real no hay pago', () => {
-  const p = parse({ SEP: { ...INC, A26: true, B26: 'Luz', D26: 5, B27: 'Agua', D27: 6, B28: 'Gas' } });
+test('misma factura mes a mes sin cambios: una factura y un pago por mes', () => {
+  const p = parse({ AGO: { ...INC, B26: 'Luz', C26: 10, D26: 10 }, SEP: { ...INC, B26: 'Luz', C26: 10, D26: 11 } });
+  assert.deepEqual(p.bills.map((b) => [b.start_month, b.end_month]), [['2026-08', null]]);
+  assert.equal(p.payments.length, 2);
+});
+
+test('pagada según la casilla; sin importe real no hay pago salvo con casilla', () => {
+  const p = parse({ SEP: { ...INC, A26: true, B26: 'Luz', D26: 5, B27: 'Agua', D27: 6, B28: 'Gas', B29: 'Gym', C29: 7, D29: 0 } });
   assert.deepEqual(p.payments.map((x) => x.paid), [1, 0]);
-  assert.equal(p.bills.length, 3);
+  assert.equal(p.bills.length, 4);
+});
+
+test('casilla con importe vacío: pagada por el presupuesto', () => {
+  const p = parse({ SEP: { ...INC, A26: true, B26: 'Luz', C26: 12 } });
+  assert.equal(p.payments.length, 1);
+  assert.equal(p.payments[0].amount, 1200);
+  assert.equal(p.payments[0].paid, 1);
+});
+
+test('celda con error: se ignora y se avisa con hoja y celda', () => {
+  const wb = book({ ...YEAR, SEP: { ...INC, B26: 'Luz', C26: 10 } });
+  wb.Sheets['SEP']['D26'] = { t: 'e', v: 42, w: '#N/A' };
+  const p = parseWorkbook(wb, NOW);
+  assert.equal(p.payments.length, 0);
+  assert.ok(p.warnings.some((w) => w.startsWith('SEP!D26')));
+});
+
+test('importes en texto: símbolo, NBSP, miles con punto y decimal con coma; ilegible = aviso', () => {
+  const p = parse({
+    SEP: { ...INC, B26: 'Luz', C26: '1.234,56 €', D26: ' 1.234,56', B27: 'Agua', D27: 'abc', B28: 'Gas', D28: '3,5' },
+    'PAGO DEUDAS | BOLA DE NIEVE': { B4: 2026, A14: 'Tarjeta', B14: 100, C14: 10, D14: '5,5 %' },
+  });
+  assert.equal(p.bills[0].budget, 123456);
+  assert.deepEqual(p.payments.map((x) => x.amount), [123456, 350]);
+  assert.ok(p.warnings.some((w) => w.includes('Agua') && w.includes('SEP!D27')));
+  assert.equal(p.debts[0].annual_rate, 5.5);
+});
+
+test('fechas: DD/MM/AAAA, D/M/AA, serie 1900 y 1904; serie baja = aviso', () => {
+  const day = Date.UTC(2026, 8, 3) / 86400000;
+  const L = { A9: 'V', B9: 1 };
+  const fondo = { ...L, L9: '03/09/2026', M9: 'V', N9: 1, L10: '3/9/26', M10: 'V', N10: 1, L11: day + 25569, M11: 'V', N11: 1, L12: 5, M12: 'V', N12: 1 };
+  const p = parse({ SEP: INC, 'FONDO DE AHORROS': fondo });
+  assert.deepEqual(p.contributions.map((c) => c.date), ['2026-09-03', '2026-09-03', '2026-09-03']);
+  assert.ok(p.warnings.some((w) => w.includes('sin fecha válida')));
+  const wb = book({ ...YEAR, SEP: INC, 'FONDO DE AHORROS': { ...L, L9: day + 25569 - 1462, M9: 'V', N9: 1 } });
+  wb.Workbook = { WBProps: { date1904: true } };
+  assert.equal(parseWorkbook(wb, NOW).contributions[0].date, '2026-09-03');
+});
+
+test('aviso de año, moneda no válida y aportaciones fuera de los meses importados', () => {
+  const p = parseWorkbook(book({ SEP: INC, 'PAGO DEUDAS | BOLA DE NIEVE': { B5: 'demasiado largo' }, 'FONDO DE AHORROS': { A9: 'V', B9: 1, L9: '2027-01-02', M9: 'V', N9: 1 } }), NOW);
+  assert.equal(p.currency, '€');
+  assert.equal(p.contributions.length, 1);
+  for (const re of [/Año/, /Moneda/, /fuera de los meses/]) assert.ok(p.warnings.some((w) => re.test(w)), String(re));
+});
+
+test('categorías: coincidencia sin acentos ni mayúsculas', () => {
+  const p = parse({ SEP: { ...INC, I26: 'a', J26: 1, K26: 'Educación', I27: 'b', J27: 1, K27: 'EDUCACION', I28: 'c', J28: 1, K28: 'educación' } });
+  assert.deepEqual(p.categoriesNeeded, [{ name: 'Educación', kind: 'needs' }]);
 });
 
 test('aportación a un destino desconocido: aviso y se omite', () => {
@@ -160,6 +219,16 @@ test('inversión: fecha de valoración nunca anterior a su última aportación',
   const p = parse({ SEP: INC, INVERSIONES: { A11: 'ETF', B11: 100, E11: 120, I11: '2030-01-02', J11: 'ETF', K11: 10 } });
   assert.equal(p.investments[0].value_date, '2030-01-02');
   assert.equal(p.contributions[0].kind, 'investment');
+});
+
+test('inversión sin valor actual: valor 0 y sin fecha de valoración, aunque tenga aportaciones', () => {
+  const p = parse({ SEP: INC, INVERSIONES: { A11: 'ETF', B11: 100, I11: '2030-01-02', J11: 'ETF', K11: 10 } });
+  assert.equal(p.investments[0].current_value, 0);
+  assert.equal(p.investments[0].value_date, null);
+});
+
+test('discrepancia: sin total en el Excel no se compara', () => {
+  assert.equal(parse({ SEP: INC }).discrepancies.length, 0);
 });
 
 test('discrepancia con el total del Excel: signo = calculado - Excel', () => {
@@ -189,4 +258,15 @@ test('validateBackup: rechaza lo que no es una copia válida', () => {
     { ...ok, tables: { a: [[1]], b: [] } },
   ];
   for (const j of bad) assert.throws(() => validateBackup(j, T, 1));
+});
+
+test('validateBackup: números no finitos o no enteros, y ajustes que faltan', () => {
+  const t = (rows: unknown[]) => ({ ...ok, tables: { a: rows, b: [] } });
+  assert.throws(() => validateBackup(t([{ x: NaN }]), T, 1));
+  assert.throws(() => validateBackup(t([{ x: Infinity }]), T, 1));
+  assert.throws(() => validateBackup(t([{ x: 1.5 }]), T, 1));
+  assert.doesNotThrow(() => validateBackup(t([{ annual_rate: 0.05 }]), T, 1));
+  const set = (keys: string[]) => ({ ...ok, tables: { settings: keys.map((key) => ({ key, value: '1' })) } });
+  assert.doesNotThrow(() => validateBackup(set(['currency', 'pct_needs', 'pct_wants', 'pct_savings']), ['settings'], 1));
+  assert.throws(() => validateBackup(set(['currency']), ['settings'], 1), /Falta el ajuste/);
 });

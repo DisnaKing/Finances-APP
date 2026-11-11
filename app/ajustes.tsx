@@ -26,14 +26,25 @@ const DUP_MSG = 'Ya existe una categoría con ese nombre';
 type Pending = { title: string; lines: string[]; warnings: string[]; diffs: string[]; apply: () => Promise<string> };
 const XLSX_TYPES = ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel', 'application/octet-stream'];
 const READ_ERR = 'No se pudo leer el archivo.';
+const MAX_BYTES = 10 * 1024 * 1024;
+
+/** Error con mensaje apto para mostrar tal cual; el resto se sustituye por un texto genérico. */
+const userErr = (m: string) => Object.assign(new Error(m), { user: true });
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /** Elige un archivo y devuelve sus bytes (null si se cancela). */
 async function pickBytes(type: string[]): Promise<ArrayBuffer | null> {
   const r = await DocumentPicker.getDocumentAsync({ type, copyToCacheDirectory: true });
   if (r.canceled) return null;
   const a = r.assets[0];
+  if (a.size != null && a.size > MAX_BYTES) throw userErr('El archivo es demasiado grande (máximo 10 MB).');
   if (Platform.OS === 'web') return a.file ? a.file.arrayBuffer() : (await fetch(a.uri)).arrayBuffer();
-  return new File(a.uri).arrayBuffer();
+  const f = new File(a.uri);
+  try {
+    return await f.arrayBuffer();
+  } finally {
+    try { f.delete(); } catch { /* copia en caché: si no se puede borrar, la limpia el sistema */ }
+  }
 }
 
 const pctNum = (t: string) => (/^\d{1,3}$/.test(t.trim()) && Number(t) <= 100 ? Number(t) : null);
@@ -207,7 +218,7 @@ export default function Ajustes() {
 
   const fail = (e: unknown, fallback: string) => {
     console.error(e);
-    setImpErr(e instanceof Error && e.message ? e.message : fallback);
+    setImpErr((e as { user?: boolean } | null)?.user ? (e as Error).message : fallback);
   };
   const start = (type: string[], prepare: (buf: ArrayBuffer) => Promise<Pending>) =>
     run(async () => {
@@ -231,17 +242,20 @@ export default function Ajustes() {
     start(XLSX_TYPES, async (buf) => {
       let plan;
       try {
-        const XLSX = await import('xlsx');
-        plan = parseWorkbook(XLSX.read(new Uint8Array(buf), { type: 'array', cellNF: true }));
+        const m = await import('xlsx/dist/xlsx.mini.min.js');
+        const XLSX = m.default ?? m;
+        plan = parseWorkbook(XLSX.read(new Uint8Array(buf), { type: 'array', cellNF: true, cellFormula: false }));
       } catch (e) {
-        throw e instanceof Error && e.message === NOT_BUDGET ? e : new Error(NOT_BUDGET);
+        console.error(e);
+        throw userErr(NOT_BUDGET);
       }
-      const n = (x: unknown[], s: string) => `${x.length} ${s}`;
+      const n = (x: unknown[], one: string, many: string) => plural(x.length, one, many);
       return {
         title: 'Importar Excel',
         lines: [
-          n(plan.months, 'meses'), n(plan.bills, 'facturas'), n(plan.expenses, 'gastos'), n(plan.goals, 'metas'),
-          n(plan.investments, 'inversiones'), n(plan.debts, 'deudas'), n(plan.contributions, 'aportaciones'),
+          n(plan.months, 'mes', 'meses'), n(plan.bills, 'factura', 'facturas'), n(plan.expenses, 'gasto', 'gastos'),
+          n(plan.goals, 'meta', 'metas'), n(plan.investments, 'inversión', 'inversiones'), n(plan.debts, 'deuda', 'deudas'),
+          n(plan.contributions, 'aportación', 'aportaciones'),
         ],
         warnings: plan.warnings,
         diffs: plan.discrepancies.map((d) => `${d.month ? monthName(d.month) + ': ' : ''}${d.field} (diferencia ${formatMoney(d.diff, cur)})`),
@@ -251,9 +265,20 @@ export default function Ajustes() {
 
   const pickBackup = () =>
     start(['application/json', 'text/plain', 'application/octet-stream'], async (buf) => {
-      const json = JSON.parse(new TextDecoder().decode(buf));
-      // Valida ya (esquema máximo abierto); restoreBackup vuelve a validar con el real antes de tocar nada.
-      const b = validateBackup(json, q.BACKUP_TABLES, Number.MAX_SAFE_INTEGER);
+      let json: unknown;
+      try {
+        json = JSON.parse(new TextDecoder().decode(buf));
+      } catch {
+        throw userErr('No parece una copia de mny');
+      }
+      // Valida ya con el esquema real; restoreBackup vuelve a validar antes de tocar nada.
+      const v = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+      let b;
+      try {
+        b = validateBackup(json, q.BACKUP_TABLES, v?.user_version ?? 0);
+      } catch (e) {
+        throw userErr(e instanceof Error ? e.message : READ_ERR);
+      }
       return {
         title: 'Restaurar copia',
         lines: q.BACKUP_TABLES.map((t) => `${t}: ${b.tables[t].length}`),
@@ -351,7 +376,7 @@ export default function Ajustes() {
 
       <Portal>
         {pending && (
-          <Dialog visible onDismiss={() => !busy && setPending(null)}>
+          <Dialog visible onDismiss={() => !busy && setPending(null)} style={{ maxHeight: '85%' }}>
             <Dialog.Title>{pending.title}</Dialog.Title>
             <Dialog.ScrollArea>
               <ScrollView>
@@ -364,6 +389,7 @@ export default function Ajustes() {
               </ScrollView>
             </Dialog.ScrollArea>
             <Dialog.Actions>
+              <Button disabled={busy} onPress={() => exportAs('json')}>Copia</Button>
               <Button disabled={busy} onPress={() => setPending(null)}>Cancelar</Button>
               <Button disabled={busy} onPress={confirmImport}>Importar</Button>
             </Dialog.Actions>

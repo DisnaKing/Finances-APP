@@ -96,12 +96,17 @@ Ahorro (meta g): `total = initial + Σ contribs(g)`; `left = max(target − tota
 
 Inversión (activo a): `contributed = initial + Σ contribs(a)`; valor mostrado `value = value_date null ? contributed : current_value + Σ contribs(a con date > value_date)` (las aportaciones del mismo día ya están en el valor); `gain = value − contributed`; `gainPct = contributed>0 ? gain/contributed : 0`. Sin `value_date` se muestra «Sin valorar» en lugar del rendimiento. Totales = suma.
 
-Deuda (d), `r = annual_rate/100/12`:
-- `monthsLeft = NPER(r, −min_payment, principal)` redondeado arriba (`r=0` → `ceil(principal/min_payment)`; si `min_payment ≤ principal·r` → nunca se paga: `null`). Se calcula sobre el **saldo actual** (el del calendario al mes en curso), no sobre el principal original, con `min_payment`.
-- Calendario mes k (desde `start_date`): `balance_k = max(balance_{k−1}·(1+r) − pago_k, 0)` con `pago_k` = aportaciones reales de esa deuda en ese mes si las hay, si no `min_payment`; parar al llegar a 0 (máx. 600 filas).
+Deuda (d), `r = annual_rate/100/12`, `cur` = mes en curso, `start` = mes de `start_date`:
+- `nper(r, pago, saldo)`: 0 si saldo ≤ 0; `null` si pago ≤ 0 o `pago ≤ round(saldo·r)` (el interés mensual redondeado a céntimos: la deuda no baja); `r=0` → `ceil(saldo/pago)`; si no, NPER redondeado arriba.
+- Calendario (tabla de amortización, desde `start`): `interés = round(saldo·r)`, `pago_k = min(real_k ?? min_payment, saldo+interés)`, `saldo_k = max(saldo+interés−pago_k, 0)`; para al llegar a 0 (máx. 600 filas). Asume `min_payment` en todo mes sin pago real, incluidos el actual y los futuros. Pagos reales con mes anterior a `start` se suman al pago real del primer mes.
+- Meses anteriores a `cur`: pago = aportaciones reales si las hay, si no `min_payment`. **Mes actual: solo cuentan los pagos reales.**
+- `currentBalance`: si `cur < start` → `principal`; si no, `max(saldo fin del mes anterior (o principal si la deuda empieza este mes) + round(saldo·r) − pagos reales de este mes, 0)`. Abierta ⇔ `currentBalance > 0`; liquidada ⇔ `currentBalance == 0`.
+- `monthsLeft = nper(r, min_payment, base saldo)` con saldo base = `principal` si `cur < start`; `currentBalance` si hay pago real este mes (se cuenta desde el mes siguiente); saldo de fin del mes anterior en otro caso (se cuenta desde este mes). `freeMonth = addM(base, monthsLeft−1)` con base = `start` si `start > cur`; `cur` si no hay pago real este mes; `cur+1` si lo hay. `monthsLeft` 0 o `null` → `freeMonth null`.
 - `paidPct = min(Σ contribs(d) / principal, 1)`.
-- Resumen: deuda total, pago mínimo total, fecha libre = máx(start + monthsLeft) entre deudas. Orden bola de nieve = saldo actual ascendente (las liquidadas, al final).
-- Presupuesto de Deuda del plan del mes = Σ `min_payment` de las deudas con saldo actual > 0.
+- Resumen: deuda total, pago mínimo total (solo abiertas), fecha libre = máx(`freeMonth`) entre deudas (`null` si alguna abierta nunca se paga). Orden bola de nieve = `currentBalance` ascendente (las liquidadas, al final).
+- Presupuesto de Deuda del plan del mes M = Σ `min_payment` de las deudas con fila en el calendario para M (`debtSchedule(d, pagos, M)` tiene una fila de M): el mes del último pago sí presupuesta; antes del inicio y tras liquidarla no.
+- Pagos: la fecha no puede ser anterior a `start_date`. «Pagar» propone `min(min_payment, currentBalance)` y se oculta si `currentBalance == 0`. Interés anual válido: 0 a 100.
+- `monthsLeft` usa NPER (paridad con el Excel); puede diferir en ±1 mes de la longitud del calendario por el redondeo mensual de intereses.
 
 Anual (año Y): por cada mes, `income, spent, saved, invested, debtPaid, remaining`; fila total = sumas.
 

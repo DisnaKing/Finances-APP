@@ -20,13 +20,11 @@ type Dlg =
   | { t: 'inv'; inv: q.Investment | null }
   | { t: 'value'; inv: q.Investment; value: number }
   | { t: 'contrib'; targetId: number; title: string; defaultAmount: number; c: q.Contribution | null }
-  | { t: 'confirm'; msg: string; ok: () => Promise<unknown> }
   | null;
 
 function InvDialog(p: {
   inv: q.Investment | null;
   onClose: (changed: boolean) => void;
-  onConfirm: (msg: string, ok: () => Promise<unknown>) => void;
 }) {
   const { inv } = p;
   const db = useSQLiteContext();
@@ -34,6 +32,7 @@ function InvDialog(p: {
   const [initial, setInitial] = useState(inv ? centsToInput(inv.initial) : '');
   const [monthly, setMonthly] = useState(inv ? centsToInput(inv.monthly) : '');
   const [busy, run] = useGuard();
+  const [askDel, setAskDel] = useState(false);
   const kb = useKeyboardHeight();
   const i = parse(initial);
   const m = parse(monthly);
@@ -49,6 +48,7 @@ function InvDialog(p: {
     }, true);
   };
   return (
+    <>
     <Dialog visible onDismiss={() => p.onClose(false)} style={{ marginBottom: kb }}>
       <Dialog.Title>{inv ? 'Editar inversión' : 'Nueva inversión'}</Dialog.Title>
       <Dialog.ScrollArea>
@@ -60,7 +60,7 @@ function InvDialog(p: {
       </Dialog.ScrollArea>
       <Dialog.Actions>
         {inv && (
-          <Button disabled={busy} onPress={() => p.onConfirm(`¿Borrar "${inv.name}" y todas sus aportaciones?`, () => q.deleteInvestment(db, inv.id))}>
+          <Button disabled={busy} onPress={() => setAskDel(true)}>
             Borrar
           </Button>
         )}
@@ -68,6 +68,10 @@ function InvDialog(p: {
         <Button onPress={save} disabled={!ok}>Guardar</Button>
       </Dialog.Actions>
     </Dialog>
+    {askDel && inv && (
+      <ConfirmDialog msg={`¿Borrar "${inv.name}" y todas sus aportaciones?`} ok={() => q.deleteInvestment(db, inv.id)} onClose={(ch) => (ch ? p.onClose(true) : setAskDel(false))} />
+    )}
+    </>
   );
 }
 
@@ -134,7 +138,6 @@ export default function Inversion() {
     setDlg(null);
     if (changed) load();
   };
-  const confirm = (msg: string, ok: () => Promise<unknown>) => setDlg({ t: 'confirm', msg, ok });
   const rows = invs.map((inv) => {
     const value = investmentValue(inv, inv.initial + inv.contrib, inv.contrib_after);
     return { inv, value, s: investmentStats({ initial: inv.initial, current_value: value }, inv.contrib) };
@@ -216,7 +219,7 @@ export default function Inversion() {
       </ScrollView>
 
       <Portal>
-        {dlg?.t === 'inv' && <InvDialog inv={dlg.inv} onClose={close} onConfirm={confirm} />}
+        {dlg?.t === 'inv' && <InvDialog inv={dlg.inv} onClose={close} />}
         {dlg?.t === 'value' && <ValueDialog inv={dlg.inv} value={dlg.value} onClose={close} />}
         {dlg?.t === 'contrib' && (
           <ContribDialog
@@ -228,7 +231,6 @@ export default function Inversion() {
             onClose={close}
           />
         )}
-        {dlg?.t === 'confirm' && <ConfirmDialog msg={dlg.msg} ok={dlg.ok} onClose={close} />}
       </Portal>
       <FAB icon="plus" accessibilityLabel="Añadir gasto" style={styles.fab} onPress={() => router.navigate('/gasto')} />
     </View>

@@ -8,14 +8,17 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/;
 export const validDate = (s: string) => ISO.test(s) && !isNaN(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-/** `max` (ISO) opcional: fechas posteriores se marcan como error (el padre debe también deshabilitar Guardar). */
-export function DateField({ value, onChange, max }: { value: string; onChange: (v: string) => void; max?: string }) {
+/** `max`/`min` (ISO) opcionales: fechas fuera de rango se marcan como error (el padre debe también deshabilitar Guardar). `label` (def. "Fecha"); `chips={false}` oculta Hoy/Ayer. */
+export function DateField(p: { value: string; onChange: (v: string) => void; max?: string; min?: string; label?: string; chips?: boolean }) {
+  const { value, onChange, max, min } = p;
   const ok = validDate(value);
   const late = ok && max !== undefined && value > max;
+  const early = ok && min !== undefined && value < min;
   const pickDate = () =>
     DateTimePickerAndroid.open({
       value: ok ? new Date(`${value}T12:00:00`) : new Date(),
       mode: 'date',
+      minimumDate: min !== undefined && validDate(min) ? new Date(`${min}T00:00:00`) : undefined,
       onChange: (_e, d) => d && onChange(iso(d)),
     });
   const yesterday = (() => {
@@ -26,17 +29,21 @@ export function DateField({ value, onChange, max }: { value: string; onChange: (
 
   return (
     <>
-      <Text variant="labelLarge" style={styles.label}>Fecha</Text>
-      <View style={styles.chips}>
-        <Chip selected={value === today()} onPress={() => onChange(today())}>Hoy</Chip>
-        <Chip selected={value === yesterday} onPress={() => onChange(yesterday)}>Ayer</Chip>
-      </View>
+      <Text variant="labelLarge" style={styles.label}>{p.label ?? 'Fecha'}</Text>
+      {p.chips !== false && (
+        <View style={styles.chips}>
+          <Chip selected={value === today()} onPress={() => onChange(today())}>Hoy</Chip>
+          <Chip selected={value === yesterday} onPress={() => onChange(yesterday)}>Ayer</Chip>
+        </View>
+      )}
       {Platform.OS === 'web' ? (
-        <TextInput mode="outlined" dense label="AAAA-MM-DD" value={value} onChangeText={onChange} error={!ok || late} style={styles.label} />
+        <TextInput mode="outlined" dense label="AAAA-MM-DD" value={value} onChangeText={onChange} error={!ok || late || early} style={styles.label} />
       ) : (
         <Button mode="outlined" icon="calendar" onPress={pickDate} style={styles.label}>{ok ? formatDate(value) : value}</Button>
       )}
-      <HelperText type="error" visible={!ok || late}>{late ? 'La fecha no puede ser futura' : 'Fecha no válida (AAAA-MM-DD)'}</HelperText>
+      <HelperText type="error" visible={!ok || late || early}>
+        {late ? 'La fecha no puede ser futura' : early ? `No puede ser anterior a ${formatDate(min!)}` : 'Fecha no válida (AAAA-MM-DD)'}
+      </HelperText>
     </>
   );
 }

@@ -18,13 +18,11 @@ const parse = (t: string) => (t.trim() === '' ? 0 : parseAmount(t)); // vacío =
 type Dlg =
   | { t: 'goal'; goal: q.Goal | null }
   | { t: 'contrib'; targetId: number; title: string; defaultAmount: number; c: q.Contribution | null }
-  | { t: 'confirm'; msg: string; ok: () => Promise<unknown> }
   | null;
 
 function GoalDialog(p: {
   goal: q.Goal | null;
   onClose: (changed: boolean) => void;
-  onConfirm: (msg: string, ok: () => Promise<unknown>) => void;
 }) {
   const { goal } = p;
   const db = useSQLiteContext();
@@ -33,6 +31,7 @@ function GoalDialog(p: {
   const [min, setMin] = useState(goal ? centsToInput(goal.min_monthly) : '');
   const [initial, setInitial] = useState(goal ? centsToInput(goal.initial) : '');
   const [busy, run] = useGuard();
+  const [askDel, setAskDel] = useState(false);
   const kb = useKeyboardHeight();
   const t = parse(target);
   const m = parse(min);
@@ -50,6 +49,7 @@ function GoalDialog(p: {
     }, true);
   };
   return (
+    <>
     <Dialog visible onDismiss={() => p.onClose(false)} style={{ marginBottom: kb }}>
       <Dialog.Title>{goal ? 'Editar meta' : 'Nueva meta'}</Dialog.Title>
       <Dialog.ScrollArea>
@@ -62,7 +62,7 @@ function GoalDialog(p: {
       </Dialog.ScrollArea>
       <Dialog.Actions>
         {goal && (
-          <Button disabled={busy} onPress={() => p.onConfirm(`¿Borrar la meta "${goal.name}" y todas sus aportaciones?`, () => q.deleteGoal(db, goal.id))}>
+          <Button disabled={busy} onPress={() => setAskDel(true)}>
             Borrar
           </Button>
         )}
@@ -70,6 +70,10 @@ function GoalDialog(p: {
         <Button onPress={save} disabled={!ok}>Guardar</Button>
       </Dialog.Actions>
     </Dialog>
+    {askDel && goal && (
+      <ConfirmDialog msg={`¿Borrar la meta "${goal.name}" y todas sus aportaciones?`} ok={() => q.deleteGoal(db, goal.id)} onClose={(ch) => (ch ? p.onClose(true) : setAskDel(false))} />
+    )}
+    </>
   );
 }
 
@@ -101,7 +105,6 @@ export default function Ahorro() {
     setDlg(null);
     if (changed) load();
   };
-  const confirm = (msg: string, ok: () => Promise<unknown>) => setDlg({ t: 'confirm', msg, ok });
   const stats = goals.map((g) => ({ g, s: goalStats(g, g.contrib) }));
   const saved = stats.reduce((a, x) => a + x.s.total, 0);
   const left = stats.reduce((a, x) => a + x.s.left, 0);
@@ -171,7 +174,7 @@ export default function Ahorro() {
       </ScrollView>
 
       <Portal>
-        {dlg?.t === 'goal' && <GoalDialog goal={dlg.goal} onClose={close} onConfirm={confirm} />}
+        {dlg?.t === 'goal' && <GoalDialog goal={dlg.goal} onClose={close} />}
         {dlg?.t === 'contrib' && (
           <ContribDialog
             kind="savings"
@@ -182,7 +185,6 @@ export default function Ahorro() {
             onClose={close}
           />
         )}
-        {dlg?.t === 'confirm' && <ConfirmDialog msg={dlg.msg} ok={dlg.ok} onClose={close} />}
       </Portal>
       <FAB icon="plus" accessibilityLabel="Añadir gasto" style={styles.fab} onPress={() => router.navigate('/gasto')} />
     </View>

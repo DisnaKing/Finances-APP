@@ -106,25 +106,37 @@ const addM = (m: string, n: number): string => {
   return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`;
 };
 
-/** Meses para liquidar `principal` pagando `payment` al mes (redondeado arriba). null = nunca (pago ≤ interés). */
+/** Meses para liquidar `principal` pagando `payment` al mes (redondeado arriba). null = nunca (pago ≤ interés, redondeado como en el cuadro). */
 export function nper(r: number, payment: number, principal: number): number | null {
   if (principal <= 0) return 0;
   if (payment <= 0) return null;
   if (r === 0) return Math.ceil(principal / payment);
-  if (payment <= principal * r) return null;
+  if (payment <= Math.round(principal * r)) return null;
   return Math.ceil(-Math.log(1 - (r * principal) / payment) / Math.log(1 + r) - 1e-9);
+}
+
+/** Pagos reales por mes; los anteriores al mes de inicio se imputan al primer mes. */
+export function foldPaid(d: DebtInput, paid: Record<string, number>): Record<string, number> {
+  const start = d.start_date.slice(0, 7);
+  const out: Record<string, number> = {};
+  for (const [m, v] of Object.entries(paid)) {
+    const k = m < start ? start : m;
+    out[k] = (out[k] ?? 0) + v;
+  }
+  return out;
 }
 
 /** Cuadro de amortización desde el mes de start_date. Mes con aportaciones reales → su suma; si no, min_payment. Máx. 600 filas. */
 export function debtSchedule(d: DebtInput, paidByMonth: Record<string, number>, untilMonth?: string): DebtRow[] {
   const r = d.annual_rate / 100 / 12;
+  const paid = foldPaid(d, paidByMonth);
   const rows: DebtRow[] = [];
   let balance = Math.max(d.principal, 0);
   let month = d.start_date.slice(0, 7);
   while (balance > 0 && rows.length < 600 && (untilMonth === undefined || month <= untilMonth)) {
     const interest = Math.round(balance * r);
     const owed = balance + interest;
-    const payment = Math.min(paidByMonth[month] ?? d.min_payment, owed);
+    const payment = Math.min(paid[month] ?? d.min_payment, owed);
     balance = Math.max(owed - payment, 0);
     rows.push({ month, payment, interest, balance });
     month = addM(month, 1);
@@ -132,14 +144,34 @@ export function debtSchedule(d: DebtInput, paidByMonth: Record<string, number>, 
   return rows;
 }
 
-/** Saldo al cierre de `currentMonth`, % pagado, meses restantes (desde el saldo actual con min_payment) y mes libre de deuda. */
-export function debtStats(d: DebtInput, paidByMonth: Record<string, number>, currentMonth: string) {
-  const rows = debtSchedule(d, paidByMonth, currentMonth);
-  const currentBalance = rows.length ? rows[rows.length - 1].balance : Math.max(d.principal, 0);
+/** ¿La deuda aporta su pago mínimo al plan del mes `month`? Sí si el cuadro tiene fila en ese mes. */
+export const debtActiveIn = (d: DebtInput, paidByMonth: Record<string, number>, month: string) =>
+  debtSchedule(d, paidByMonth, month).some((x) => x.month === month);
+
+/**
+ * Estado a `cur`. Meses anteriores: pago real o, si no, mínimo (como el Excel). Mes en curso: solo cuentan pagos REALES.
+ * currentBalance = saldo a fin del mes anterior (o principal) + interés de este mes − pagos reales de este mes (mín. 0);
+ * antes del inicio = principal. Abierta ⇔ currentBalance > 0. monthsLeft cuenta desde este mes si aún no hay pago real, si no desde el siguiente.
+ */
+export function debtStats(d: DebtInput, paidByMonth: Record<string, number>, cur: string) {
+  const r = d.annual_rate / 100 / 12;
+  const start = d.start_date.slice(0, 7);
+  const principal = Math.max(d.principal, 0);
+  const real = foldPaid(d, paidByMonth)[cur] ?? 0;
+  let currentBalance = principal;
+  let basis = principal; // saldo sobre el que corre NPER
+  let base = start; // primer mes de pago restante
+  if (cur >= start) {
+    const rows = debtSchedule(d, paidByMonth, addM(cur, -1));
+    const prev = rows.length ? rows[rows.length - 1].balance : principal;
+    currentBalance = Math.max(prev + Math.round(prev * r) - real, 0);
+    basis = real > 0 ? currentBalance : prev;
+    base = real > 0 ? addM(cur, 1) : cur;
+  }
   const paidTotal = sum(Object.values(paidByMonth));
   const paidPct = d.principal > 0 ? Math.min(paidTotal / d.principal, 1) : 0;
-  const monthsLeft = nper(d.annual_rate / 100 / 12, d.min_payment, currentBalance);
-  const freeMonth = monthsLeft === null ? null : addM(currentMonth, monthsLeft);
+  const monthsLeft = nper(r, d.min_payment, basis);
+  const freeMonth = monthsLeft === null || monthsLeft === 0 ? null : addM(base, monthsLeft - 1);
   return { currentBalance, paidTotal, paidPct, monthsLeft, freeMonth };
 }
 

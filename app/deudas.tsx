@@ -10,14 +10,14 @@ import { DateField, validDate } from '@/src/components/DateField';
 import { useGuard } from '@/src/components/useGuard';
 import { useKeyboardHeight } from '@/src/components/useKeyboardHeight';
 import * as q from '@/src/db/queries';
-import { debtSchedule, debtStats, debtSummary } from '@/src/lib/calc';
+import { debtSchedule, debtStats, debtSummary, nper } from '@/src/lib/calc';
 import { centsToInput, formatMoney, formatPct, parseAmount } from '@/src/lib/money';
 import { currentMonth, formatDate, monthName, today } from '@/src/lib/month';
 
 /** "3,5" → 3.5 ; vacío = 0 ; no válido = null */
 const parseRate = (t: string) => {
   const s = t.trim().replace(',', '.');
-  return s === '' ? 0 : /^\d+(\.\d+)?$/.test(s) ? Number(s) : null;
+  return s === '' ? 0 : /^\d+(\.\d+)?$/.test(s) && Number(s) <= 100 ? Number(s) : null;
 };
 const short = (mo: string) => monthName(mo).replace(/^(\S{3})\S*/, '$1'); // "Ene 2026"
 
@@ -26,14 +26,12 @@ type Dlg =
   | { t: 'debt'; debt: q.Debt | null }
   | { t: 'contrib'; targetId: number; title: string; defaultAmount: number; c: q.Contribution | null }
   | { t: 'amort'; debt: q.Debt }
-  | { t: 'confirm'; msg: string; ok: () => Promise<unknown> }
   | null;
 
 function DebtDialog(p: {
   debt: q.Debt | null;
   cur: string;
   onClose: (changed: boolean) => void;
-  onConfirm: (msg: string, ok: () => Promise<unknown>) => void;
 }) {
   const { debt } = p;
   const db = useSQLiteContext();
@@ -43,15 +41,16 @@ function DebtDialog(p: {
   const [rate, setRate] = useState(debt ? String(debt.annual_rate).replace('.', ',') : '');
   const [start, setStart] = useState(debt?.start_date ?? today());
   const [busy, run] = useGuard();
+  const [askDel, setAskDel] = useState(false);
   const kb = useKeyboardHeight();
   const pr = parseAmount(principal);
   const mn = parseAmount(min);
   const rt = parseRate(rate);
   const errP = principal.trim() !== '' && pr !== null && pr <= 0 ? 'Debe ser mayor que 0' : undefined;
   const errM = min.trim() !== '' && mn !== null && mn <= 0 ? 'Debe ser mayor que 0' : undefined;
-  const errR = rt === null ? 'Interés no válido' : undefined;
+  const errR = rt === null ? 'Interés no válido (0 a 100)' : undefined;
   const interest = pr !== null && rt !== null ? Math.round((pr * rt) / 100 / 12) : 0;
-  const lowMin = mn !== null && mn > 0 && interest > 0 && mn <= interest;
+  const lowMin = pr !== null && pr > 0 && mn !== null && mn > 0 && rt !== null && nper(rt / 1200, mn, pr) === null;
   const ok = name.trim() !== '' && pr !== null && pr > 0 && mn !== null && mn > 0 && rt !== null && validDate(start) && !busy;
   const save = () => {
     if (!ok) return;
@@ -62,6 +61,7 @@ function DebtDialog(p: {
     }, true);
   };
   return (
+    <>
     <Dialog visible onDismiss={() => p.onClose(false)} style={{ marginBottom: kb }}>
       <Dialog.Title>{debt ? 'Editar deuda' : 'Nueva deuda'}</Dialog.Title>
       <Dialog.ScrollArea>
@@ -74,12 +74,12 @@ function DebtDialog(p: {
           </HelperText>
           <TextInput mode="outlined" dense label="Interés anual (%)" value={rate} onChangeText={setRate} error={!!errR} keyboardType="decimal-pad" autoCorrect={false} />
           <HelperText type="error" visible={!!errR}>{errR}</HelperText>
-          <DateField value={start} onChange={setStart} />
+          <DateField label="Fecha de inicio" chips={false} value={start} onChange={setStart} />
         </ScrollView>
       </Dialog.ScrollArea>
       <Dialog.Actions>
         {debt && (
-          <Button disabled={busy} onPress={() => p.onConfirm(`¿Borrar la deuda "${debt.name}" y todos sus pagos?`, () => q.deleteDebt(db, debt.id))}>
+          <Button disabled={busy} onPress={() => setAskDel(true)}>
             Borrar
           </Button>
         )}
@@ -87,11 +87,17 @@ function DebtDialog(p: {
         <Button onPress={save} disabled={!ok}>Guardar</Button>
       </Dialog.Actions>
     </Dialog>
+    {askDel && debt && (
+      <ConfirmDialog msg={`¿Borrar la deuda "${debt.name}" y todos sus pagos?`} ok={() => q.deleteDebt(db, debt.id)} onClose={(ch) => (ch ? p.onClose(true) : setAskDel(false))} />
+    )}
+    </>
   );
 }
 
 function AmortDialog(p: { debt: q.Debt; paid: Record<string, number>; cur: string; onClose: () => void }) {
-  const rows = debtSchedule(p.debt, p.paid);
+  const all = debtSchedule(p.debt, p.paid);
+  const [n, setN] = useState(120);
+  const rows = all.slice(0, n);
   const m = (x: number) => formatMoney(x, p.cur);
   const cell = (flex: number, right = true) => ({ flex, textAlign: right ? ('right' as const) : ('left' as const) });
   return (
@@ -115,7 +121,8 @@ function AmortDialog(p: { debt: q.Debt; paid: Record<string, number>; cur: strin
               </View>
             );
           })}
-          {rows.length === 600 && rows[599].balance > 0 && <Text variant="bodySmall">Se muestran los primeros 600 meses.</Text>}
+          {all.length > n && <Button onPress={() => setN(n + 120)}>Ver más</Button>}
+          {all.length === 600 && all[599].balance > 0 && n >= 600 && <Text variant="bodySmall">Se muestran los primeros 600 meses.</Text>}
         </ScrollView>
       </Dialog.ScrollArea>
       <Dialog.Actions>
@@ -156,7 +163,6 @@ export default function Deudas() {
     setDlg(null);
     if (changed) load();
   };
-  const confirm = (msg: string, ok: () => Promise<unknown>) => setDlg({ t: 'confirm', msg, ok });
   const now = currentMonth();
   const stats = new Map(debts.map((d) => [d.id, { d, s: debtStats(d, paid[d.id] ?? {}, now) }]));
   const sum = debtSummary([...stats.values()].map(({ d, s }) => ({ id: d.id, min_payment: d.min_payment, ...s })));
@@ -207,13 +213,15 @@ export default function Deudas() {
                     {formatPct(s.paidPct, false)} pagado
                     {s.currentBalance <= 0 ? ' · liquidada' : s.monthsLeft === null ? ' · no baja con el mínimo' : ` · ${s.monthsLeft} ${s.monthsLeft === 1 ? 'mes restante' : 'meses restantes'}`}
                   </Text>
-                  <Button compact style={styles.link} onPress={() => setDlg({ t: 'amort', debt: d })}>Ver amortización</Button>
+                  <Button compact style={styles.link} accessibilityLabel={`Ver amortización de ${d.name}`} onPress={() => setDlg({ t: 'amort', debt: d })}>Ver amortización</Button>
                 </View>
               )}
               right={() => (
                 <View style={styles.end}>
                   <Text variant="bodyLarge">{m(s.currentBalance)}</Text>
-                  <Button compact onPress={() => setDlg({ t: 'contrib', targetId: d.id, title: d.name, defaultAmount: d.min_payment, c: null })}>Pagar</Button>
+                  {s.currentBalance > 0 && (
+                    <Button compact accessibilityLabel={`Pagar ${d.name}`} onPress={() => setDlg({ t: 'contrib', targetId: d.id, title: d.name, defaultAmount: Math.min(d.min_payment, s.currentBalance), c: null })}>Pagar</Button>
+                  )}
                 </View>
               )}
               onPress={() => setDlg({ t: 'debt', debt: d })}
@@ -239,12 +247,11 @@ export default function Deudas() {
       </ScrollView>
 
       <Portal>
-        {dlg?.t === 'debt' && <DebtDialog debt={dlg.debt} cur={cur} onClose={close} onConfirm={confirm} />}
+        {dlg?.t === 'debt' && <DebtDialog debt={dlg.debt} cur={cur} onClose={close} />}
         {dlg?.t === 'contrib' && (
-          <ContribDialog kind="debt" targetId={dlg.targetId} title={dlg.title} c={dlg.c} defaultAmount={dlg.defaultAmount} onClose={close} />
+          <ContribDialog kind="debt" targetId={dlg.targetId} title={dlg.title} c={dlg.c} defaultAmount={dlg.defaultAmount} minDate={debts.find((x) => x.id === dlg.targetId)?.start_date} onClose={close} />
         )}
         {dlg?.t === 'amort' && <AmortDialog debt={dlg.debt} paid={paid[dlg.debt.id] ?? {}} cur={cur} onClose={() => close(false)} />}
-        {dlg?.t === 'confirm' && <ConfirmDialog msg={dlg.msg} ok={dlg.ok} onClose={close} />}
       </Portal>
     </View>
   );

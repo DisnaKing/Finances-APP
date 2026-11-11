@@ -1,5 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { billVisible, debtStats, type Kind, type MonthInput, type Pct } from '@/src/lib/calc';
+import { billVisible, debtActiveIn, type Kind, type MonthInput, type Pct } from '@/src/lib/calc';
 import { addMonths, currentMonth, monthOf, monthRange, today } from '@/src/lib/month';
 
 // Solo runAsync/getAllAsync/withTransactionAsync: withExclusiveTransactionAsync usa otra conexión
@@ -330,5 +330,5 @@ export async function debtPaymentsByMonth(db: SQLiteDatabase): Promise<Record<nu
 /** Presupuesto de Deuda del plan: Σ pago mínimo de las deudas no liquidadas a ese mes. */
 async function debtPlan(db: SQLiteDatabase, month: string): Promise<number> {
   const [debts, paid] = await Promise.all([listDebts(db), debtPaymentsByMonth(db)]);
-  return debts.reduce((a, d) => a + (debtStats(d, paid[d.id] ?? {}, month).currentBalance > 0 ? d.min_payment : 0), 0);
+  return debts.reduce((a, d) => a + (debtActiveIn(d, paid[d.id] ?? {}, month) ? d.min_payment : 0), 0);
 }

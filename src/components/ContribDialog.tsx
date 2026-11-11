@@ -11,13 +11,15 @@ import * as q from '@/src/db/queries';
 import { centsToInput, parseAmount } from '@/src/lib/money';
 import { today } from '@/src/lib/month';
 
-/** Aportar (c = null) o editar/borrar un registro de aportación de una meta o inversión. */
+/** Aportar/pagar (c = null) o editar/borrar un registro de una meta, inversión o deuda. */
 export function ContribDialog(p: {
   kind: q.ContribKind;
   targetId: number;
   title: string;
   c: q.Contribution | null;
   defaultAmount?: number;
+  /** ISO: fecha mínima (deudas: inicio de la deuda). */
+  minDate?: string;
   onClose: (changed: boolean) => void;
 }) {
   const { c } = p;
@@ -28,7 +30,8 @@ export function ContribDialog(p: {
   const [askDel, setAskDel] = useState(false);
   const kb = useKeyboardHeight();
   const a = parseAmount(amount);
-  const ok = a !== null && a > 0 && validDate(date) && !busy;
+  const debt = p.kind === 'debt';
+  const ok = a !== null && a > 0 && validDate(date) && (p.minDate === undefined || date >= p.minDate) && !busy;
   const save = () => {
     if (!ok) return;
     return run(async () => {
@@ -40,11 +43,11 @@ export function ContribDialog(p: {
   return (
     <>
     <Dialog visible onDismiss={() => p.onClose(false)} style={{ marginBottom: kb }}>
-      <Dialog.Title>{c ? (p.kind === 'debt' ? 'Editar pago' : 'Editar aportación') : `${p.kind === 'debt' ? 'Pagar' : 'Aportar'} a ${p.title}`}</Dialog.Title>
+      <Dialog.Title>{debt ? (c ? 'Editar pago' : `Pagar ${p.title}`) : c ? 'Editar aportación' : `Aportar a ${p.title}`}</Dialog.Title>
       <Dialog.ScrollArea>
         <ScrollView keyboardShouldPersistTaps="handled">
           <AmountField label="Importe" value={amount} onChange={setAmount} />
-          <DateField value={date} onChange={setDate} />
+          <DateField value={date} onChange={setDate} min={p.minDate} />
         </ScrollView>
       </Dialog.ScrollArea>
       <Dialog.Actions>
@@ -54,7 +57,7 @@ export function ContribDialog(p: {
       </Dialog.Actions>
     </Dialog>
     {askDel && c && (
-      <ConfirmDialog msg="¿Borrar esta aportación?" ok={() => q.deleteContribution(db, c.id)} onClose={(ch) => (ch ? p.onClose(true) : setAskDel(false))} />
+      <ConfirmDialog msg={debt ? '¿Borrar este pago?' : '¿Borrar esta aportación?'} ok={() => q.deleteContribution(db, c.id)} onClose={(ch) => (ch ? p.onClose(true) : setAskDel(false))} />
     )}
     </>
   );

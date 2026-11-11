@@ -94,3 +94,67 @@ export function investmentValue(
 ): number {
   return i.value_date === null ? contributed : i.current_value + contribAfter;
 }
+
+// --- Deudas (bola de nieve). r = interés mensual = annual_rate / 100 / 12 ---
+
+export type DebtInput = { principal: number; min_payment: number; annual_rate: number; start_date: string };
+export type DebtRow = { month: string; payment: number; interest: number; balance: number };
+
+const addM = (m: string, n: number): string => {
+  const [y, mo] = m.split('-').map(Number);
+  const t = y * 12 + (mo - 1) + n;
+  return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`;
+};
+
+/** Meses para liquidar `principal` pagando `payment` al mes (redondeado arriba). null = nunca (pago ≤ interés). */
+export function nper(r: number, payment: number, principal: number): number | null {
+  if (principal <= 0) return 0;
+  if (payment <= 0) return null;
+  if (r === 0) return Math.ceil(principal / payment);
+  if (payment <= principal * r) return null;
+  return Math.ceil(-Math.log(1 - (r * principal) / payment) / Math.log(1 + r) - 1e-9);
+}
+
+/** Cuadro de amortización desde el mes de start_date. Mes con aportaciones reales → su suma; si no, min_payment. Máx. 600 filas. */
+export function debtSchedule(d: DebtInput, paidByMonth: Record<string, number>, untilMonth?: string): DebtRow[] {
+  const r = d.annual_rate / 100 / 12;
+  const rows: DebtRow[] = [];
+  let balance = Math.max(d.principal, 0);
+  let month = d.start_date.slice(0, 7);
+  while (balance > 0 && rows.length < 600 && (untilMonth === undefined || month <= untilMonth)) {
+    const interest = Math.round(balance * r);
+    const owed = balance + interest;
+    const payment = Math.min(paidByMonth[month] ?? d.min_payment, owed);
+    balance = Math.max(owed - payment, 0);
+    rows.push({ month, payment, interest, balance });
+    month = addM(month, 1);
+  }
+  return rows;
+}
+
+/** Saldo al cierre de `currentMonth`, % pagado, meses restantes (desde el saldo actual con min_payment) y mes libre de deuda. */
+export function debtStats(d: DebtInput, paidByMonth: Record<string, number>, currentMonth: string) {
+  const rows = debtSchedule(d, paidByMonth, currentMonth);
+  const currentBalance = rows.length ? rows[rows.length - 1].balance : Math.max(d.principal, 0);
+  const paidTotal = sum(Object.values(paidByMonth));
+  const paidPct = d.principal > 0 ? Math.min(paidTotal / d.principal, 1) : 0;
+  const monthsLeft = nper(d.annual_rate / 100 / 12, d.min_payment, currentBalance);
+  const freeMonth = monthsLeft === null ? null : addM(currentMonth, monthsLeft);
+  return { currentBalance, paidTotal, paidPct, monthsLeft, freeMonth };
+}
+
+/** Totales + orden bola de nieve (menor saldo primero, empate por id, liquidadas al final). `order` = ids. */
+export function debtSummary(items: { id: number; min_payment: number; currentBalance: number; freeMonth: string | null }[]) {
+  const open = items.filter((x) => x.currentBalance > 0);
+  const byBalance = (a: { id: number; currentBalance: number }, b: { id: number; currentBalance: number }) =>
+    a.currentBalance - b.currentBalance || a.id - b.id;
+  const freeMonth = open.some((x) => x.freeMonth === null)
+    ? null
+    : items.reduce<string | null>((m, x) => (x.freeMonth !== null && (m === null || x.freeMonth > m) ? x.freeMonth : m), null);
+  return {
+    totalBalance: sum(items.map((x) => x.currentBalance)),
+    totalMin: sum(open.map((x) => x.min_payment)),
+    freeMonth,
+    order: [...open.sort(byBalance), ...items.filter((x) => x.currentBalance <= 0).sort(byBalance)].map((x) => x.id),
+  };
+}

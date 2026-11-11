@@ -97,10 +97,11 @@ Ahorro (meta g): `total = initial + Σ contribs(g)`; `left = max(target − tota
 Inversión (activo a): `contributed = initial + Σ contribs(a)`; valor mostrado `value = value_date null ? contributed : current_value + Σ contribs(a con date > value_date)` (las aportaciones del mismo día ya están en el valor); `gain = value − contributed`; `gainPct = contributed>0 ? gain/contributed : 0`. Sin `value_date` se muestra «Sin valorar» en lugar del rendimiento. Totales = suma.
 
 Deuda (d), `r = annual_rate/100/12`:
-- `monthsLeft = NPER(r, −min_payment, principal)` redondeado arriba (`r=0` → `ceil(principal/min_payment)`; si `min_payment ≤ principal·r` → nunca se paga: `null`).
+- `monthsLeft = NPER(r, −min_payment, principal)` redondeado arriba (`r=0` → `ceil(principal/min_payment)`; si `min_payment ≤ principal·r` → nunca se paga: `null`). Se calcula sobre el **saldo actual** (el del calendario al mes en curso), no sobre el principal original, con `min_payment`.
 - Calendario mes k (desde `start_date`): `balance_k = max(balance_{k−1}·(1+r) − pago_k, 0)` con `pago_k` = aportaciones reales de esa deuda en ese mes si las hay, si no `min_payment`; parar al llegar a 0 (máx. 600 filas).
 - `paidPct = min(Σ contribs(d) / principal, 1)`.
-- Resumen: deuda total, pago mínimo total, fecha libre = máx(start + monthsLeft) entre deudas. Orden bola de nieve = saldo actual ascendente.
+- Resumen: deuda total, pago mínimo total, fecha libre = máx(start + monthsLeft) entre deudas. Orden bola de nieve = saldo actual ascendente (las liquidadas, al final).
+- Presupuesto de Deuda del plan del mes = Σ `min_payment` de las deudas con saldo actual > 0.
 
 Anual (año Y): por cada mes, `income, spent, saved, invested, debtPaid, remaining`; fila total = sumas.
 

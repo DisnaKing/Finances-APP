@@ -40,7 +40,7 @@ export function ContribDialog(p: {
   return (
     <>
     <Dialog visible onDismiss={() => p.onClose(false)} style={{ marginBottom: kb }}>
-      <Dialog.Title>{c ? 'Editar aportación' : `Aportar a ${p.title}`}</Dialog.Title>
+      <Dialog.Title>{c ? (p.kind === 'debt' ? 'Editar pago' : 'Editar aportación') : `${p.kind === 'debt' ? 'Pagar' : 'Aportar'} a ${p.title}`}</Dialog.Title>
       <Dialog.ScrollArea>
         <ScrollView keyboardShouldPersistTaps="handled">
           <AmountField label="Importe" value={amount} onChange={setAmount} />

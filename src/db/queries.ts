@@ -1,5 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { billVisible, type Kind, type MonthInput, type Pct } from '@/src/lib/calc';
+import { billVisible, debtStats, type Kind, type MonthInput, type Pct } from '@/src/lib/calc';
 import { addMonths, currentMonth, monthOf, monthRange, today } from '@/src/lib/month';
 
 // Solo runAsync/getAllAsync/withTransactionAsync: withExclusiveTransactionAsync usa otra conexión
@@ -198,20 +198,20 @@ export function contributionsForMonth(db: SQLiteDatabase, month: string) {
   );
 }
 
-/** Todo lo que necesita `monthSummary` para el mes. `plan` = Σ metas/inversiones/deudas (vacío hasta la fase 2). */
+/** Todo lo que necesita `monthSummary` para el mes. `plan` = Σ metas/inversiones/deudas pendientes. */
 export async function monthInput(db: SQLiteDatabase, month: string): Promise<MonthInput> {
-  const [inc, bills, exps, contribs, { pct }, plan] = await Promise.all([
+  const [inc, bills, exps, contribs, { pct }, plan, debt] = await Promise.all([
     incomes(db, month),
     listBillsForMonth(db, month),
     listExpenses(db, month),
     contributionsForMonth(db, month),
     getSettings(db),
-    db.getFirstAsync<{ savings: number; investment: number; debt: number }>(
+    db.getFirstAsync<{ savings: number; investment: number }>(
       `SELECT (SELECT COALESCE(SUM(min_monthly), 0) FROM savings_goal g
                WHERE g.target > g.initial + (SELECT COALESCE(SUM(amount), 0) FROM contribution WHERE kind = 'savings' AND target_id = g.id)) AS savings,
-              (SELECT COALESCE(SUM(monthly), 0) FROM investment) AS investment,
-              (SELECT COALESCE(SUM(min_payment), 0) FROM debt) AS debt`,
+              (SELECT COALESCE(SUM(monthly), 0) FROM investment) AS investment`,
     ),
+    debtPlan(db, month),
   ]);
   return {
     incomes: inc,
@@ -219,7 +219,7 @@ export async function monthInput(db: SQLiteDatabase, month: string): Promise<Mon
     expenses: exps.map((e) => ({ amount: e.amount, kind: e.category_kind })),
     contributions: contribs,
     pct,
-    plan: plan ?? undefined,
+    plan: { savings: plan?.savings ?? 0, investment: plan?.investment ?? 0, debt },
   };
 }
 
@@ -279,12 +279,13 @@ export const deleteInvestment = (db: SQLiteDatabase, id: number) =>
 export const updateInvestmentValue = (db: SQLiteDatabase, id: number, cents: number, date: string) =>
   write(() => db.runAsync('UPDATE investment SET current_value = ?, value_date = ? WHERE id = ?', cents, date, id));
 
-/** Aportaciones de un tipo (opcionalmente de un destino), más recientes primero. `target_name` solo para savings/investment. */
+/** Aportaciones de un tipo (opcionalmente de un destino), más recientes primero. `target_name` = meta/inversión/deuda. */
 export const listContributions = (db: SQLiteDatabase, kind: ContribKind, targetId?: number) =>
   db.getAllAsync<Contribution>(
-    `SELECT c.*, COALESCE(g.name, i.name) AS target_name FROM contribution c
+    `SELECT c.*, COALESCE(g.name, i.name, d.name) AS target_name FROM contribution c
      LEFT JOIN savings_goal g ON c.kind = 'savings' AND g.id = c.target_id
      LEFT JOIN investment i ON c.kind = 'investment' AND i.id = c.target_id
+     LEFT JOIN debt d ON c.kind = 'debt' AND d.id = c.target_id
      WHERE c.kind = ?${targetId === undefined ? '' : ' AND c.target_id = ?'}
      ORDER BY c.date DESC, c.id DESC`,
     ...(targetId === undefined ? [kind] : [kind, targetId]),
@@ -297,3 +298,37 @@ export const updateContribution = (db: SQLiteDatabase, id: number, date: string,
   write(() => db.runAsync('UPDATE contribution SET date = ?, amount = ? WHERE id = ?', date, amount, id));
 
 export const deleteContribution = (db: SQLiteDatabase, id: number) => write(() => db.runAsync('DELETE FROM contribution WHERE id = ?', id));
+
+// --- Deudas ---
+
+export type Debt = { id: number; name: string; principal: number; min_payment: number; annual_rate: number; start_date: string };
+
+export const listDebts = (db: SQLiteDatabase) => db.getAllAsync<Debt>('SELECT * FROM debt ORDER BY id');
+
+export const addDebt = (db: SQLiteDatabase, name: string, principal: number, min_payment: number, annual_rate: number, start_date: string) =>
+  write(() => db.runAsync('INSERT INTO debt (name, principal, min_payment, annual_rate, start_date) VALUES (?, ?, ?, ?, ?)', name, principal, min_payment, annual_rate, start_date));
+
+export const updateDebt = (db: SQLiteDatabase, id: number, name: string, principal: number, min_payment: number, annual_rate: number, start_date: string) =>
+  write(() => db.runAsync('UPDATE debt SET name = ?, principal = ?, min_payment = ?, annual_rate = ?, start_date = ? WHERE id = ?', name, principal, min_payment, annual_rate, start_date, id));
+
+export const deleteDebt = (db: SQLiteDatabase, id: number) =>
+  tx(db, async () => {
+    await db.runAsync("DELETE FROM contribution WHERE kind = 'debt' AND target_id = ?", id);
+    await db.runAsync('DELETE FROM debt WHERE id = ?', id);
+  });
+
+/** Pagos reales por deuda y mes: { [debtId]: { 'YYYY-MM': Σcéntimos } }. */
+export async function debtPaymentsByMonth(db: SQLiteDatabase): Promise<Record<number, Record<string, number>>> {
+  const rows = await db.getAllAsync<{ id: number; m: string; s: number }>(
+    "SELECT target_id AS id, substr(date, 1, 7) AS m, SUM(amount) AS s FROM contribution WHERE kind = 'debt' GROUP BY target_id, m",
+  );
+  const out: Record<number, Record<string, number>> = {};
+  for (const r of rows) (out[r.id] ??= {})[r.m] = r.s;
+  return out;
+}
+
+/** Presupuesto de Deuda del plan: Σ pago mínimo de las deudas no liquidadas a ese mes. */
+async function debtPlan(db: SQLiteDatabase, month: string): Promise<number> {
+  const [debts, paid] = await Promise.all([listDebts(db), debtPaymentsByMonth(db)]);
+  return debts.reduce((a, d) => a + (debtStats(d, paid[d.id] ?? {}, month).currentBalance > 0 ? d.min_payment : 0), 0);
+}

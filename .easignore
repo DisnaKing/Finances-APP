@@ -44,4 +44,5 @@ yarn-error.*
 *.xlsx
 dist*/
 tests/
+.claude/
 *.csv

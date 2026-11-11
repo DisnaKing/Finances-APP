@@ -32,6 +32,9 @@ export const lightTheme = {
     onError: '#FFFFFF',
     errorContainer: '#FFDAD6',
     onErrorContainer: '#410002',
+    inversePrimary: '#A8D29A',
+    inverseSurface: '#31302B',
+    inverseOnSurface: '#F3F0E8',
     elevation: {
       level0: 'transparent',
       level1: '#F2EFE5',
@@ -71,6 +74,9 @@ export const darkTheme = {
     onError: '#690005',
     errorContainer: '#93000A',
     onErrorContainer: '#FFDAD6',
+    inversePrimary: '#3E6B37',
+    inverseSurface: '#E3E3DA',
+    inverseOnSurface: '#2F312B',
     elevation: {
       level0: 'transparent',
       level1: '#21241C',

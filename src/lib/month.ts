@@ -10,6 +10,12 @@ export function currentMonth(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
 }
 
+/** Fecha local 'YYYY-MM-DD' (no toISOString: ese es UTC). */
+export function today(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export function addMonths(m: string, n: number): string {
   const [y, mo] = m.split('-').map(Number);
   const t = y * 12 + (mo - 1) + n;

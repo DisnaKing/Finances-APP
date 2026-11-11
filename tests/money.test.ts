@@ -13,6 +13,12 @@ test('parseAmount válidos', () => {
     ['-5', -500],
     [' 1 000 + 2 ', 100200],
     ['-(2+3)*2', -1000],
+    // miles con punto (es-ES) vs decimal
+    ['1.234', 123400], ['1.234,56', 123456], ['12.345,67', 1234567], ['1.000', 100000],
+    ['1.234.567,8', 123456780], ['1.5', 150], ['1.8', 180], ['1,8', 180], ['12.34', 1234], ['1,234', 123],
+    ['(1.8+1+1.2+1.2+0.9)', 610], ['=(1.8+1+1.2)', 400],
+    // redondeo sin ruido binario, mitades lejos de 0
+    ['4,35/2', 218], ['2.01/2', 101], ['0,57*0,5', 29], ['-0,005', -1],
   ];
   for (const [input, cents] of cases) assert.equal(parseAmount(input), cents, input);
 });
@@ -20,14 +26,18 @@ test('parseAmount válidos', () => {
 test('parseAmount inválidos → null', () => {
   for (const input of ['', '   ', 'abc', '1+', '1/0', '(1+2', '1+2)', '1..2+', '*3'])
     assert.equal(parseAmount(input), null, input);
+  assert.equal(parseAmount('('.repeat(300)), null);
+  assert.equal(parseAmount('1+'.repeat(150) + '1'), null); // >200 caracteres
 });
 
 test('formatMoney', () => {
-  assert.equal(formatMoney(123456), '1.234,56 €');
-  assert.equal(formatMoney(-580), '-5,80 €');
-  assert.equal(formatMoney(0), '0,00 €');
-  assert.equal(formatMoney(100000000), '1.000.000,00 €');
-  assert.equal(formatMoney(5, '$'), '0,05 $');
+  assert.equal(formatMoney(123456), '1.234,56\u00A0€');
+  assert.equal(formatMoney(-580), '-5,80\u00A0€');
+  assert.equal(formatMoney(0), '0,00\u00A0€');
+  assert.equal(formatMoney(100000000), '1.000.000,00\u00A0€');
+  assert.equal(formatMoney(NaN), '—');
+  assert.equal(formatMoney(Infinity), '—');
+  assert.equal(formatMoney(5, '$'), '0,05\u00A0$');
 });
 
 test('centsToInput', () => {

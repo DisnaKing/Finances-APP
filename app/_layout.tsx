@@ -9,10 +9,11 @@ import { darkTheme, lightTheme, navDarkTheme, navLightTheme } from '@/src/theme'
 
 export default function RootLayout() {
   const dark = useColorScheme() === 'dark';
+  // SQLiteProvider va fuera para que los portales de Paper (Dialog/Menu) puedan usar useSQLiteContext.
   return (
-    <PaperProvider theme={dark ? darkTheme : lightTheme}>
-      <ThemeProvider value={dark ? navDarkTheme : navLightTheme}>
-        <SQLiteProvider databaseName="mny.db" onInit={migrate}>
+    <SQLiteProvider databaseName="mny.db" onInit={migrate} onError={(e) => console.error('SQLite', e)}>
+      <PaperProvider theme={dark ? darkTheme : lightTheme}>
+        <ThemeProvider value={dark ? navDarkTheme : navLightTheme}>
           <StatusBar style={dark ? 'light' : 'dark'} />
           <Stack>
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -21,8 +22,8 @@ export default function RootLayout() {
             <Stack.Screen name="anual" options={{ title: 'Anual' }} />
             <Stack.Screen name="ajustes" options={{ title: 'Ajustes' }} />
           </Stack>
-        </SQLiteProvider>
-      </ThemeProvider>
-    </PaperProvider>
+        </ThemeProvider>
+      </PaperProvider>
+    </SQLiteProvider>
   );
 }

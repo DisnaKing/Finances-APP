@@ -106,14 +106,14 @@ export default function Ahorro() {
   const [goals, setGoals] = useState<q.Goal[]>([]);
   const [regs, setRegs] = useState<q.Contribution[]>([]);
   const [dlg, setDlg] = useState<Dlg>(null);
-  const [accrued, setAccrued] = useState<Record<number, number>>({}); // id → interés devengado (céntimos)
+  const [accrued, setAccrued] = useState<Record<number, number>>({}); // id → interés ya abonado (céntimos)
   const seq = useRef(0);
 
   const load = useCallback(async () => {
     const n = ++seq.current;
     try {
       const [g, r, st] = await Promise.all([q.listGoals(db), q.listContributions(db, 'savings'), q.getSettings(db)]);
-      // Interés abonado (el último día de cada mes ya transcurrido; informativo, no cuenta en el saldo).
+      // Interés abonado: se recibe el último día de cada mes ya transcurrido y forma parte del saldo de la meta.
       const acc: Record<number, number> = {};
       const now = today();
       for (const x of g) {
@@ -136,7 +136,7 @@ export default function Ahorro() {
     setDlg(null);
     if (changed) load();
   };
-  const stats = goals.map((g) => ({ g, s: goalStats(g, g.contrib) }));
+  const stats = goals.map((g) => ({ g, s: goalStats(g, g.contrib + (accrued[g.id] ?? 0)) }));
   const saved = stats.reduce((a, x) => a + x.s.total, 0);
   const left = stats.reduce((a, x) => a + x.s.left, 0);
 
@@ -176,7 +176,7 @@ export default function Ahorro() {
                 </Text>
                 {g.interest_rate > 0 && (
                   <Text variant="bodySmall">
-                    Remunerada {formatPct(g.interest_rate / 100, false)} · abonado {m(accrued[g.id] ?? 0)} · ≈ {m(yearlyInterest(g.interest_rate, s.total + (accrued[g.id] ?? 0)))}/año
+                    Remunerada {formatPct(g.interest_rate / 100, false)} · intereses recibidos {m(accrued[g.id] ?? 0)} · ≈ {m(yearlyInterest(g.interest_rate, s.total))}/año
                   </Text>
                 )}
               </View>

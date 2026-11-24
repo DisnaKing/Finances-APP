@@ -25,7 +25,7 @@ Categorías de gasto (las 12 del desplegable): Mercado, Transporte, Restaurante,
 ## 2. Modelo de datos
 
 ```
-Settings      (moneda, año activo, % necesidades/deseos/ahorros)
+Settings      (moneda, año activo)
 Income        (id, mes, tipo: sueldo|extra|otros, presupuesto, importe)
 Bill          (id, concepto, tipo: necesidades|deseos|ahorros, presupuesto, activa)   -- plantilla recurrente
 BillPayment   (id, bill_id, mes, importe, fecha, pagada)
@@ -35,17 +35,17 @@ Contribution  (id, fecha, tipo: ahorro|inversión|deuda, destino_id, importe)
 Investment    (id, activo, aportación_inicial, aportación_mensual, valor_actual, actualizado_en)
 Debt          (id, nombre, deuda_inicial, pago_mín, interés_anual, fecha_inicial)
 ```
-Todo lo demás (totales, restante, 50/30/20, progreso, NPER, amortización, rendimiento) es **calculado**, no se guarda.
+Todo lo demás (totales, restante, progreso, NPER, amortización, rendimiento) es **calculado**, no se guarda.
 
 ## 3. Pantallas
-1. **Inicio (mes actual)**: ingreso, gastado, ahorrado/invertido, restante; barras 50/30/20 de presupuesto contra lo real; selector de mes.
+1. **Inicio (mes actual)**: ingreso, gastado, ahorrado/invertido, restante; presupuesto contra lo real; selector de mes.
 2. **Añadir gasto** (botón +, ≤3 toques): importe con calculadora, categoría, concepto, fecha = hoy.
 3. **Movimientos del mes**: lista de gastos y facturas (con check de pagada) e ingresos; editar y borrar.
 4. **Ahorros**: metas con progreso y meses restantes, y registro de aportaciones.
 5. **Inversiones**: cartera, actualizar valor, aportaciones, rendimiento.
 6. **Deudas**: lista, fecha libre de deudas, amortización por deuda.
 7. **Anual**: tabla por mes y gráfico.
-8. **Ajustes**: moneda, % 50/30/20, categorías, plantillas de facturas, importar/exportar.
+8. **Ajustes**: moneda, categorías, plantillas de facturas, importar/exportar.
 
 ## 4. Stack propuesto (pendiente de confirmar)
 - **Expo (React Native + TypeScript)**: un solo código para Android e iOS, y se prueba en el móvil con Expo Go sin compilar.
@@ -76,13 +76,13 @@ Todo lo demás (totales, restante, 50/30/20, progreso, NPER, amortización, rend
 | Fase | Entrega | Hecho cuando |
 |---|---|---|
 | **0. Base** | Proyecto Expo, esquema SQLite, navegación por pestañas | La app arranca en el móvil con Expo Go |
-| **1. Mes** | Ingresos, facturas recurrentes, gastos, resumen del mes, 50/30/20 | Noviembre en la app da los mismos números que el Excel |
+| **1. Mes** | Ingresos, facturas recurrentes, gastos, resumen del mes | Noviembre en la app da los mismos números que el Excel |
 | **2. Ahorros + inversiones** | Metas, cartera, aportaciones únicas | Totales iguales a los de las pestañas del Excel |
 | **3. Deudas** | Deudas, NPER, amortización, bola de nieve | Mismos meses restantes que `NPER` del Excel |
 | **4. Anual + export** | Resumen anual, gráfico, exportar CSV/JSON | Anual cuadra con la pestaña ANUAL |
 | **5. Importar Excel** | Script que lee el .xlsx y carga ago–nov 2026 | Histórico completo dentro de la app |
 
-Los cálculos (50/30/20, NPER, amortización, rendimiento) van en un único módulo `calc.ts` con un test que compara contra los valores reales de este Excel.
+Los cálculos (NPER, amortización, rendimiento) van en un único módulo `calc.ts` con un test que compara contra los valores reales de este Excel.
 
 ## 6. Reparto de agentes (según CLAUDE.md)
 - **opus**: este plan, revisión de cada fase y cuadre con el Excel.

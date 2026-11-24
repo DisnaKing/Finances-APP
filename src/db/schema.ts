@@ -1,7 +1,8 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-// Esquema v1 (SPEC.md). Para v2: añadir `if (v < 2) { ... }` y subir LATEST.
-const LATEST = 1;
+// Esquema v1 (SPEC.md) + v2 (cuenta remunerada: savings_goal.interest_rate, TAE anual en %; 0 = sin remunerar).
+// Para v3: añadir `if (v < 3) { ... }` y subir LATEST.
+const LATEST = 2;
 
 const V1 = `
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -37,12 +38,7 @@ CREATE TABLE contribution (id INTEGER PRIMARY KEY, date TEXT NOT NULL,
   target_id INTEGER NOT NULL, amount INTEGER NOT NULL);
 `;
 
-const SETTINGS: [string, string][] = [
-  ['currency', '€'],
-  ['pct_needs', '50'],
-  ['pct_wants', '30'],
-  ['pct_savings', '20'],
-];
+const SETTINGS: [string, string][] = [['currency', '€']];
 
 // Orden del desplegable del Excel.
 const CATEGORIES: [string, 'needs' | 'wants'][] = [
@@ -74,6 +70,10 @@ export async function migrate(db: SQLiteDatabase): Promise<void> {
         await db.runAsync('INSERT INTO settings (key, value) VALUES (?, ?)', k, val);
       for (const [i, [name, kind]] of CATEGORIES.entries())
         await db.runAsync('INSERT INTO category (name, kind, sort) VALUES (?, ?, ?)', name, kind, i + 1);
+    }
+    if (v < 2) {
+      await db.execAsync('ALTER TABLE savings_goal ADD COLUMN interest_rate REAL NOT NULL DEFAULT 0');
+      await db.execAsync("DELETE FROM settings WHERE key LIKE 'pct\\_%' ESCAPE '\\'");
     }
     await db.execAsync(`PRAGMA user_version = ${LATEST}`);
   });

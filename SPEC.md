@@ -38,15 +38,16 @@ src/
 tests/                  *.test.ts + fixtures del Excel (no se suben a EAS)
 ```
 
-## Esquema SQLite (v1)
+## Esquema SQLite (v2)
 ```sql
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
--- keys: currency('€'), pct_needs('50'), pct_wants('30'), pct_savings('20')
+-- keys: currency('€')
 
 CREATE TABLE category (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE,
   kind TEXT NOT NULL CHECK (kind IN ('needs','wants')), sort INTEGER NOT NULL DEFAULT 0);
--- seed: Mercado, Transporte, Salud, Hogar, Educación, Mascotas -> needs;
---       Restaurante, Entretenimiento, Cuidado personal, Compras, Vacaciones, Otros -> wants
+-- `kind` se conserva en BD por compatibilidad pero ya no se usa (sin 50/30/20).
+-- seed: Mercado, Transporte, Salud, Hogar, Educación, Mascotas, Restaurante, Entretenimiento,
+--       Cuidado personal, Compras, Vacaciones, Otros
 
 CREATE TABLE income (id INTEGER PRIMARY KEY, month TEXT NOT NULL, concept TEXT NOT NULL,
   budget INTEGER NOT NULL DEFAULT 0, amount INTEGER NOT NULL DEFAULT 0);
@@ -63,7 +64,8 @@ CREATE TABLE expense (id INTEGER PRIMARY KEY, date TEXT NOT NULL, concept TEXT N
   amount INTEGER NOT NULL, category_id INTEGER REFERENCES category(id) ON DELETE SET NULL);
 
 CREATE TABLE savings_goal (id INTEGER PRIMARY KEY, name TEXT NOT NULL, target INTEGER NOT NULL,
-  min_monthly INTEGER NOT NULL DEFAULT 0, initial INTEGER NOT NULL DEFAULT 0);
+  min_monthly INTEGER NOT NULL DEFAULT 0, initial INTEGER NOT NULL DEFAULT 0,
+  interest_rate REAL NOT NULL DEFAULT 0); -- v2: TAE anual en %; 0 = cuenta no remunerada
 
 CREATE TABLE investment (id INTEGER PRIMARY KEY, name TEXT NOT NULL, initial INTEGER NOT NULL DEFAULT 0,
   monthly INTEGER NOT NULL DEFAULT 0, current_value INTEGER NOT NULL DEFAULT 0, value_date TEXT);
@@ -86,13 +88,12 @@ Mes M:
 - `spent = billsSpent + expensesSpent` (el Excel mensual hace esto; **no** incluir inversión — el ANUAL del Excel lo hacía mal).
 - `saved / invested / debtPaid = Σ contribution.amount` del mes por `kind`.
 - `remaining = income − spent − saved − invested − debtPaid` (= celda G21 del Excel).
-- 50/30/20: `budget[k] = round(income × pct_k / 100)`.
-  - real needs = bills kind needs + expenses de categoría needs + debtPaid
-  - real wants = bills kind wants + expenses de categoría wants + expenses sin categoría
-  - real savings = bills kind savings + saved + invested
+- Presupuesto vs real por fila: Facturas (Σ presupuesto de facturas), Ahorros/Inversión/Deuda (plan opcional, 0 por defecto) y Gastos = max(ingreso previsto − facturas − ahorro − inversión − deuda, 0). No hay reparto 50/30/20.
 - Facturas visibles en M: `start_month ≤ M` y (`end_month` NULL o `end_month ≥ M`), más cualquiera con pago en M.
 
 Ahorro (meta g): `total = initial + Σ contribs(g)`; `left = max(target − total, 0)`; `progress = target>0 ? min(total/target,1) : 0`; `monthsLeft = min_monthly>0 && left>0 ? ceil(left/min_monthly) : null`.
+
+Cuenta remunerada (meta con `interest_rate > 0`): interés **informativo**, no modifica `total`. `accruedInterest`: capitalización mensual, r = TAE/100/12, interés redondeado cada mes, aportaciones tras aplicar el interés del mes. `yearlyInterest(rate, saldo)`: 12 meses sin aportaciones.
 
 Inversión (activo a): `contributed = initial + Σ contribs(a)`; valor mostrado `value = value_date null ? contributed : current_value + Σ contribs(a con date > value_date)` (las aportaciones del mismo día ya están en el valor); `gain = value − contributed`; `gainPct = contributed>0 ? gain/contributed : 0`. Sin `value_date` se muestra «Sin valorar» en lugar del rendimiento. Totales = suma.
 

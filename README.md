@@ -1,19 +1,19 @@
 # mny — gastos personales
 
-App Android (Expo + React Native) para llevar el presupuesto mensual que antes vivía en una hoja de cálculo: ingresos, facturas recurrentes, gastos del día a día, metas de ahorro, inversiones y deudas, con el reparto 50/30/20.
+App Android (Expo + React Native) para llevar el presupuesto mensual que antes vivía en una hoja de cálculo: ingresos, facturas recurrentes, gastos del día a día, metas de ahorro (con cuentas remuneradas), inversiones y deudas.
 
 Los datos se guardan **solo en el móvil** (SQLite local). No hay servidor ni cuentas: la app funciona sin conexión.
 
 ## Qué hace
 
-- **Inicio**: resumen del mes (ingresos, gastado, ahorrado + invertido, restante), reparto 50/30/20 y presupuesto frente a real.
+- **Inicio**: resumen del mes (ingresos, gastado, ahorrado + invertido, restante), y presupuesto frente a real.
 - **Mes**: ingresos, facturas (con ✓ de pagada) y gastos del mes. Las facturas se repiten cada mes hasta darlas de baja.
 - **Gasto**: alta rápida con calculadora (`+ − × ÷`), categoría y fecha.
 - **Ahorro**: metas con objetivo, aportación mínima mensual, progreso y meses restantes.
 - **Inversión**: activos con lo aportado, valor actual y ganancia/pérdida.
 - **Deudas**: saldo, cuota, interés, tabla de amortización y fecha de fin.
 - **Anual**: totales por mes del año con gráfico; tocar un mes lleva a él.
-- **Ajustes**: moneda, porcentajes 50/30/20, categorías, facturas recurrentes (editar/reactivar).
+- **Ajustes**: moneda, categorías, facturas recurrentes (editar/reactivar).
 - **Exportar**: copia de seguridad (JSON) y movimientos (CSV para Excel).
 - **Importar**: el Excel de presupuesto (`.xlsx`) o una copia JSON. Antes de reemplazar los datos muestra un resumen, avisos y las diferencias con los totales del Excel.
 

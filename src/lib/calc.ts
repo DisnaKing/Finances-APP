@@ -1,15 +1,12 @@
 // Cálculos puros en céntimos (SPEC "Reglas de cálculo"). Sin imports: corre bajo `node --test`.
 
-export type Kind = 'needs' | 'wants' | 'savings';
-export type Pct = { needs: number; wants: number; savings: number };
 type BA = { budget: number; actual: number };
 
 export type MonthInput = {
   incomes: { budget: number; amount: number }[];
-  bills: { budget: number; kind: Kind; amount: number | null }[];
-  expenses: { amount: number; kind: 'needs' | 'wants' | null }[];
+  bills: { budget: number; amount: number | null }[];
+  expenses: { amount: number }[];
   contributions: { kind: 'savings' | 'investment' | 'debt'; amount: number }[];
-  pct: Pct;
   plan?: { savings: number; investment: number; debt: number };
 };
 
@@ -28,27 +25,17 @@ export function monthSummary(d: MonthInput) {
   const spent = billsSpent + expensesSpent;
   const remaining = income - spent - saved - invested - debtPaid;
 
-  const billsOf = (k: Kind) => sum(d.bills.filter((b) => b.kind === k).map((b) => b.amount ?? 0));
-  const expOf = (k: 'needs' | 'wants' | null) => sum(d.expenses.filter((e) => e.kind === k).map((e) => e.amount));
-  const budget = (k: Kind) => Math.round((income * d.pct[k]) / 100);
-
-  const split: Record<Kind, BA> = {
-    needs: { budget: budget('needs'), actual: billsOf('needs') + expOf('needs') + debtPaid },
-    wants: { budget: budget('wants'), actual: billsOf('wants') + expOf('wants') + expOf(null) },
-    savings: { budget: budget('savings'), actual: billsOf('savings') + saved + invested },
-  };
-
-  const fixedNW = sum(d.bills.filter((b) => b.kind !== 'savings').map((b) => b.budget));
   const plan = d.plan ?? { savings: 0, investment: 0, debt: 0 };
+  // Gastos variables presupuestados = lo que queda del ingreso previsto tras facturas y plan de ahorro/inversión/deuda.
   const rows: Record<'bills' | 'expenses' | 'savings' | 'investment' | 'debt', BA> = {
     bills: { budget: billsBudget, actual: billsSpent },
-    expenses: { budget: Math.max(split.needs.budget + split.wants.budget - fixedNW, 0), actual: expensesSpent },
+    expenses: { budget: Math.max(incomeBudget - billsBudget - plan.savings - plan.investment - plan.debt, 0), actual: expensesSpent },
     savings: { budget: plan.savings, actual: saved },
     investment: { budget: plan.investment, actual: invested },
     debt: { budget: plan.debt, actual: debtPaid },
   };
 
-  return { income, incomeBudget, billsBudget, billsSpent, expensesSpent, spent, saved, invested, debtPaid, remaining, split, rows };
+  return { income, incomeBudget, billsBudget, billsSpent, expensesSpent, spent, saved, invested, debtPaid, remaining, rows };
 }
 
 /** Factura visible en el mes: dentro de [start, end] o con pago ese mes. */
@@ -70,6 +57,46 @@ export function goalStats(g: { target: number; min_monthly: number; initial: num
   const monthsLeft = g.min_monthly > 0 && left > 0 ? Math.ceil(left / g.min_monthly) : null;
   return { total, left, progress, monthsLeft };
 }
+
+/**
+ * Cuenta remunerada: interés compuesto mensual (r = TAE/100/12) sobre el saldo, desde `startMonth` hasta `untilMonth` (incluido).
+ * Saldo inicial = `initial` + aportaciones de meses anteriores a startMonth; cada mes: interés = round(saldo·r) sobre el saldo
+ * de inicio de mes, y las aportaciones del mes se suman al final. `contribByMonth`: 'YYYY-MM' → céntimos (puede ser negativo).
+ */
+export function accruedInterest(
+  rate: number,
+  initial: number,
+  contribByMonth: Record<string, number>,
+  startMonth: string,
+  untilMonth: string,
+): number {
+  const r = rate / 100 / 12;
+  let balance = initial;
+  for (const [m, v] of Object.entries(contribByMonth)) if (m < startMonth) balance += v;
+  let interest = 0;
+  for (let m = startMonth; m <= untilMonth; m = addM(m, 1)) {
+    if (r > 0 && balance > 0) {
+      const i = Math.round(balance * r);
+      interest += i;
+      balance += i;
+    }
+    balance += contribByMonth[m] ?? 0;
+  }
+  return interest;
+}
+
+/** Interés estimado de los próximos 12 meses sobre un saldo, sin nuevas aportaciones. */
+export const yearlyInterest = (rate: number, balance: number): number => {
+  const r = rate / 100 / 12;
+  let b = balance;
+  let t = 0;
+  for (let i = 0; i < 12; i++) {
+    const x = Math.round(b * r);
+    t += x;
+    b += x;
+  }
+  return t;
+};
 
 /** Inversión: aportado = inicial + aportaciones; rendimiento = valor actual − aportado. */
 export function investmentStats(i: { initial: number; current_value: number }, contribSum: number) {

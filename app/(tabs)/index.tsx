@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Card, FAB, ProgressBar, Text, useTheme } from 'react-native-paper';
+import { Card, FAB, Text, useTheme } from 'react-native-paper';
 import { router, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { MonthSelector } from '@/src/components/MonthSelector';
@@ -10,12 +10,6 @@ import { monthSummary } from '@/src/lib/calc';
 import { formatMoney } from '@/src/lib/money';
 
 type Summary = ReturnType<typeof monthSummary>;
-
-const SPLIT = [
-  { key: 'needs', label: 'Necesidades', color: 'primary' },
-  { key: 'wants', label: 'Deseos', color: 'secondary' },
-  { key: 'savings', label: 'Ahorros', color: 'tertiary' },
-] as const;
 
 const ROWS = [
   { key: 'bills', label: 'Facturas' },
@@ -92,27 +86,6 @@ export default function Inicio() {
               </Card>
             </View>
 
-            <Text variant="titleMedium" style={styles.title}>50/30/20</Text>
-            {SPLIT.map(({ key, label, color }) => {
-              const { budget, actual } = s.split[key];
-              const over = actual > budget;
-              return (
-                <View key={key} style={styles.split}>
-                  <View style={styles.between}>
-                    <Text variant="bodyLarge">{label}</Text>
-                    <Text variant="bodyMedium" style={over ? { color: c.error } : undefined}>
-                      {m(actual)} / {m(budget)}
-                    </Text>
-                  </View>
-                  <ProgressBar
-                    progress={budget > 0 ? Math.min(Math.max(actual / budget, 0), 1) : actual > 0 ? 1 : 0}
-                    color={over ? c.error : c[color]}
-                    style={styles.bar}
-                  />
-                </View>
-              );
-            })}
-
             <Text variant="titleMedium" style={styles.title}>Presupuesto vs real</Text>
             {ROWS.map(({ key, label }) => {
               const { budget, actual } = s.rows[key];
@@ -140,9 +113,7 @@ const styles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
   card: { flexBasis: '48%', flexGrow: 1 },
   title: { marginTop: 24, marginBottom: 8 },
-  split: { marginBottom: 12 },
   between: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  bar: { height: 8, borderRadius: 4, marginTop: 4 },
   row: { paddingVertical: 6, gap: 8 },
   num: { minWidth: 72, textAlign: 'right' },
   fab: { position: 'absolute', right: 16, bottom: 16 },

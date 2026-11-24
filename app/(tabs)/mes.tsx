@@ -9,7 +9,6 @@ import {
   IconButton,
   List,
   Portal,
-  SegmentedButtons,
   Text,
   TextInput,
   useTheme,
@@ -24,10 +23,8 @@ import { useGuard } from '@/src/components/useGuard';
 import { useKeyboardHeight } from '@/src/components/useKeyboardHeight';
 import * as q from '@/src/db/queries';
 import type { Bill, Expense, Income } from '@/src/db/queries';
-import type { Kind } from '@/src/lib/calc';
 import { centsToInput, formatMoney, parseAmount } from '@/src/lib/money';
 
-const KIND_LABEL: Record<Kind, string> = { needs: 'Necesidad', wants: 'Deseo', savings: 'Ahorro' };
 const parse = (t: string) => (t.trim() === '' ? 0 : parseAmount(t)); // vacío = 0
 
 type Dlg =
@@ -88,7 +85,6 @@ function BillDialog(p: {
   const initAmount = bill && bill.payment_amount !== null ? centsToInput(bill.payment_amount) : '';
   const [amount, setAmount] = useState(initAmount);
   const [concept, setConcept] = useState(bill?.concept ?? '');
-  const [kind, setKind] = useState<Kind>(bill?.kind ?? 'needs');
   const [budget, setBudget] = useState(bill ? centsToInput(bill.budget) : '');
   const b = parse(budget);
   const setAmt = amount.trim() !== '' && amount !== initAmount; // solo si el usuario lo ha tocado
@@ -100,10 +96,10 @@ function BillDialog(p: {
     if (!ok) return;
     return run(async () => {
       if (bill) {
-        await q.updateBill(db, bill.id, concept.trim(), kind, b);
+        await q.updateBill(db, bill.id, concept.trim(), b);
         if (setAmt) await q.setPaymentAmount(db, bill.id, month, am!);
       } else {
-        await q.addBill(db, concept.trim(), kind, b, month);
+        await q.addBill(db, concept.trim(), b, month);
       }
       p.onClose(true);
     }, true);
@@ -120,12 +116,6 @@ function BillDialog(p: {
         <ScrollView contentContainerStyle={styles.dlgBody}>
           {bill && <AmountField label="Importe de este mes" value={amount} onChange={setAmount} />}
           <TextInput mode="outlined" dense label="Concepto" value={concept} onChangeText={setConcept} />
-          <SegmentedButtons
-            style={styles.seg}
-            value={kind}
-            onValueChange={(v) => setKind(v as Kind)}
-            buttons={(Object.keys(KIND_LABEL) as Kind[]).map((k) => ({ value: k, label: KIND_LABEL[k] }))}
-          />
           <AmountField label="Presupuesto" value={budget} onChange={setBudget} />
           {bill && (
             <>
@@ -220,7 +210,6 @@ export default function Mes() {
           <List.Item
             key={b.id}
             title={b.concept}
-            description={KIND_LABEL[b.kind]}
             left={() => (
               <Checkbox
                 status={b.paid ? 'checked' : 'unchecked'}
@@ -290,6 +279,5 @@ const styles = StyleSheet.create({
   rowEnd: { flexDirection: 'row', alignItems: 'center' },
   empty: { alignItems: 'center', paddingVertical: 8 },
   dlgBody: { paddingVertical: 8 },
-  seg: { marginVertical: 8 },
   fab: { position: 'absolute', right: 16, bottom: 16 },
 });

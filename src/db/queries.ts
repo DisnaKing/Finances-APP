@@ -1,5 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { billVisible, debtActiveIn, reactivationPlan, type Kind, type MonthInput, type Pct } from '@/src/lib/calc';
+import { billVisible, debtActiveIn, reactivationPlan, type MonthInput } from '@/src/lib/calc';
 import { norm, validateBackup, type ImportPlan } from '@/src/lib/importXlsx';
 import { addMonths, currentMonth, monthOf, monthRange, today } from '@/src/lib/month';
 
@@ -20,12 +20,11 @@ const tx = (db: SQLiteDatabase, fn: () => Promise<void>) => write(() => db.withT
 /** Fecha de un pago nuevo: hoy si cae en `month`, si no el día 1. */
 const paymentDate = (month: string) => (monthOf(today()) === month ? today() : `${month}-01`);
 
-export type Category = { id: number; name: string; kind: 'needs' | 'wants' };
+export type Category = { id: number; name: string };
 export type Income = { id: number; month: string; concept: string; budget: number; amount: number };
 export type Bill = {
   id: number;
   concept: string;
-  kind: Kind;
   budget: number;
   start_month: string;
   end_month: string | null;
@@ -39,22 +38,18 @@ export type Expense = {
   amount: number;
   category_id: number | null;
   category_name: string | null;
-  category_kind: 'needs' | 'wants' | null;
 };
 
 // --- Ajustes y categorías ---
 
-export async function getSettings(db: SQLiteDatabase): Promise<{ pct: Pct; currency: string }> {
+export async function getSettings(db: SQLiteDatabase): Promise<{ currency: string }> {
   const rows = await db.getAllAsync<{ key: string; value: string }>('SELECT key, value FROM settings');
   const s = Object.fromEntries(rows.map((r) => [r.key, r.value]));
-  return {
-    pct: { needs: Number(s.pct_needs), wants: Number(s.pct_wants), savings: Number(s.pct_savings) },
-    currency: s.currency ?? '€',
-  };
+  return { currency: s.currency ?? '€' };
 }
 
 export const listCategories = (db: SQLiteDatabase) =>
-  db.getAllAsync<Category>('SELECT id, name, kind FROM category ORDER BY sort, id');
+  db.getAllAsync<Category>('SELECT id, name FROM category ORDER BY sort, id');
 
 // --- Ingresos ---
 
@@ -101,7 +96,7 @@ export const deleteIncome = (db: SQLiteDatabase, id: number) => write(() => db.r
 
 export async function listBillsForMonth(db: SQLiteDatabase, month: string): Promise<Bill[]> {
   const rows = await db.getAllAsync<Bill>(
-    `SELECT b.id, b.concept, b.kind, b.budget, b.start_month, b.end_month,
+    `SELECT b.id, b.concept, b.budget, b.start_month, b.end_month,
             p.amount AS payment_amount, COALESCE(p.paid, 0) AS paid
      FROM bill b LEFT JOIN bill_payment p ON p.bill_id = b.id AND p.month = ?
      ORDER BY b.id`,
@@ -110,11 +105,11 @@ export async function listBillsForMonth(db: SQLiteDatabase, month: string): Prom
   return rows.filter((b) => billVisible(b, month, b.payment_amount !== null));
 }
 
-export const addBill = (db: SQLiteDatabase, concept: string, kind: Kind, budget: number, start_month: string) =>
-  write(() => db.runAsync('INSERT INTO bill (concept, kind, budget, start_month) VALUES (?, ?, ?, ?)', concept, kind, budget, start_month));
+export const addBill = (db: SQLiteDatabase, concept: string, budget: number, start_month: string) =>
+  write(() => db.runAsync('INSERT INTO bill (concept, budget, start_month) VALUES (?, ?, ?)', concept, budget, start_month));
 
-export const updateBill = (db: SQLiteDatabase, id: number, concept: string, kind: Kind, budget: number) =>
-  write(() => db.runAsync('UPDATE bill SET concept = ?, kind = ?, budget = ? WHERE id = ?', concept, kind, budget, id));
+export const updateBill = (db: SQLiteDatabase, id: number, concept: string, budget: number) =>
+  write(() => db.runAsync('UPDATE bill SET concept = ?, budget = ? WHERE id = ?', concept, budget, id));
 
 /**
  * "Dejar de repetir desde este mes": borra los pagos de `month` en adelante y fija end_month = mes anterior
@@ -164,7 +159,7 @@ export const deletePayment = (db: SQLiteDatabase, billId: number, month: string)
 // --- Gastos ---
 
 const EXPENSE_SELECT = `SELECT e.id, e.date, e.concept, e.amount, e.category_id,
-  c.name AS category_name, c.kind AS category_kind
+  c.name AS category_name
   FROM expense e LEFT JOIN category c ON c.id = e.category_id`;
 
 export function listExpenses(db: SQLiteDatabase, month: string) {
@@ -203,12 +198,11 @@ export function contributionsForMonth(db: SQLiteDatabase, month: string) {
 
 /** Todo lo que necesita `monthSummary` para el mes. `plan` = Σ metas/inversiones/deudas pendientes. */
 export async function monthInput(db: SQLiteDatabase, month: string): Promise<MonthInput> {
-  const [inc, bills, exps, contribs, { pct }, plan, debt] = await Promise.all([
+  const [inc, bills, exps, contribs, plan, debt] = await Promise.all([
     incomes(db, month),
     listBillsForMonth(db, month),
     listExpenses(db, month),
     contributionsForMonth(db, month),
-    getSettings(db),
     db.getFirstAsync<{ savings: number; investment: number }>(
       `SELECT (SELECT COALESCE(SUM(min_monthly), 0) FROM savings_goal g
                WHERE g.target > g.initial + (SELECT COALESCE(SUM(amount), 0) FROM contribution WHERE kind = 'savings' AND target_id = g.id)) AS savings,
@@ -218,10 +212,9 @@ export async function monthInput(db: SQLiteDatabase, month: string): Promise<Mon
   ]);
   return {
     incomes: inc,
-    bills: bills.map((b) => ({ budget: b.budget, kind: b.kind, amount: b.payment_amount })),
-    expenses: exps.map((e) => ({ amount: e.amount, kind: e.category_kind })),
+    bills: bills.map((b) => ({ budget: b.budget, amount: b.payment_amount })),
+    expenses: exps.map((e) => ({ amount: e.amount })),
     contributions: contribs,
-    pct,
     plan: { savings: plan?.savings ?? 0, investment: plan?.investment ?? 0, debt },
   };
 }
@@ -229,7 +222,15 @@ export async function monthInput(db: SQLiteDatabase, month: string): Promise<Mon
 // --- Ahorro e inversión ---
 
 export type ContribKind = 'savings' | 'investment' | 'debt';
-export type Goal = { id: number; name: string; target: number; min_monthly: number; initial: number; contrib: number };
+export type Goal = {
+  id: number;
+  name: string;
+  target: number;
+  min_monthly: number;
+  initial: number;
+  interest_rate: number; // TAE anual en %; 0 = no es cuenta remunerada
+  contrib: number;
+};
 export type Investment = {
   id: number;
   name: string;
@@ -248,11 +249,24 @@ const contribSum = (kind: ContribKind, table: string) =>
 export const listGoals = (db: SQLiteDatabase) =>
   db.getAllAsync<Goal>(`SELECT *, ${contribSum('savings', 'savings_goal')} FROM savings_goal ORDER BY id`);
 
-export const addGoal = (db: SQLiteDatabase, name: string, target: number, min_monthly: number, initial: number) =>
-  write(() => db.runAsync('INSERT INTO savings_goal (name, target, min_monthly, initial) VALUES (?, ?, ?, ?)', name, target, min_monthly, initial));
+export const addGoal = (db: SQLiteDatabase, name: string, target: number, min_monthly: number, initial: number, interest_rate: number) =>
+  write(() =>
+    db.runAsync('INSERT INTO savings_goal (name, target, min_monthly, initial, interest_rate) VALUES (?, ?, ?, ?, ?)', name, target, min_monthly, initial, interest_rate),
+  );
 
-export const updateGoal = (db: SQLiteDatabase, id: number, name: string, target: number, min_monthly: number, initial: number) =>
-  write(() => db.runAsync('UPDATE savings_goal SET name = ?, target = ?, min_monthly = ?, initial = ? WHERE id = ?', name, target, min_monthly, initial, id));
+export const updateGoal = (db: SQLiteDatabase, id: number, name: string, target: number, min_monthly: number, initial: number, interest_rate: number) =>
+  write(() =>
+    db.runAsync('UPDATE savings_goal SET name = ?, target = ?, min_monthly = ?, initial = ?, interest_rate = ? WHERE id = ?', name, target, min_monthly, initial, interest_rate, id),
+  );
+
+/** Aportaciones de una meta agrupadas por mes ('YYYY-MM' → céntimos), para calcular intereses. */
+export const goalContribByMonth = async (db: SQLiteDatabase, id: number) => {
+  const rows = await db.getAllAsync<{ m: string; s: number }>(
+    "SELECT substr(date, 1, 7) AS m, SUM(amount) AS s FROM contribution WHERE kind = 'savings' AND target_id = ? GROUP BY m",
+    id,
+  );
+  return Object.fromEntries(rows.map((r) => [r.m, r.s])) as Record<string, number>;
+};
 
 // contribution.target_id no es FK (polimórfico): la cascada es manual y en la misma transacción.
 export const deleteGoal = (db: SQLiteDatabase, id: number) =>
@@ -349,47 +363,33 @@ const setSetting = (db: SQLiteDatabase, key: string, value: string) =>
 
 export const setCurrency = (db: SQLiteDatabase, currency: string) => write(() => setSetting(db, 'currency', currency));
 
-const putPct = async (db: SQLiteDatabase, p: Pct) => {
-  await setSetting(db, 'pct_needs', String(p.needs));
-  await setSetting(db, 'pct_wants', String(p.wants));
-  await setSetting(db, 'pct_savings', String(p.savings));
-};
-
-export const setPct = (db: SQLiteDatabase, p: Pct) => tx(db, () => putPct(db, p));
-
-/** Moneda + porcentajes en una sola transacción (o se guardan los dos o ninguno). */
-export const saveGeneral = (db: SQLiteDatabase, currency: string, p: Pct) =>
-  tx(db, async () => {
-    await setSetting(db, 'currency', currency);
-    await putPct(db, p);
-  });
-
 // Nombre repetido: lanza (UNIQUE) y el llamador lo muestra junto al campo.
-export const addCategory = (db: SQLiteDatabase, name: string, kind: Category['kind']) =>
-  write(() => db.runAsync('INSERT INTO category (name, kind, sort) VALUES (?, ?, (SELECT COALESCE(MAX(sort), 0) + 1 FROM category))', name, kind));
+// category.kind sigue en el esquema (NOT NULL, heredado del 50/30/20) pero ya no se usa: se guarda 'needs'.
+export const addCategory = (db: SQLiteDatabase, name: string) =>
+  write(() => db.runAsync("INSERT INTO category (name, kind, sort) VALUES (?, 'needs', (SELECT COALESCE(MAX(sort), 0) + 1 FROM category))", name));
 
-export const updateCategory = (db: SQLiteDatabase, id: number, name: string, kind: Category['kind']) =>
-  write(() => db.runAsync('UPDATE category SET name = ?, kind = ? WHERE id = ?', name, kind, id));
+export const updateCategory = (db: SQLiteDatabase, id: number, name: string) =>
+  write(() => db.runAsync('UPDATE category SET name = ? WHERE id = ?', name, id));
 
 /** Sus gastos quedan sin categoría (ON DELETE SET NULL). */
 export const deleteCategory = (db: SQLiteDatabase, id: number) => write(() => db.runAsync('DELETE FROM category WHERE id = ?', id));
 
 /** Plantillas de factura, activas y terminadas. */
 export const listAllBills = (db: SQLiteDatabase) =>
-  db.getAllAsync<Omit<Bill, 'payment_amount' | 'paid'>>('SELECT id, concept, kind, budget, start_month, end_month FROM bill ORDER BY id');
+  db.getAllAsync<Omit<Bill, 'payment_amount' | 'paid'>>('SELECT id, concept, budget, start_month, end_month FROM bill ORDER BY id');
 
 /** Reabre la factura (end_month = NULL) si terminó hace poco; si es antigua, inserta una copia desde este mes y deja la vieja como histórico. */
 export const reactivateBill = (db: SQLiteDatabase, id: number) =>
   tx(db, async () => {
-    const b = await db.getFirstAsync<{ concept: string; kind: Kind; budget: number; end_month: string | null }>(
-      'SELECT concept, kind, budget, end_month FROM bill WHERE id = ?',
+    const b = await db.getFirstAsync<{ concept: string; budget: number; end_month: string | null }>(
+      'SELECT concept, budget, end_month FROM bill WHERE id = ?',
       id,
     );
     if (!b || b.end_month === null) return;
     if (reactivationPlan(b.end_month, currentMonth()) === 'reopen') {
       await db.runAsync('UPDATE bill SET end_month = NULL WHERE id = ?', id);
     } else {
-      await db.runAsync('INSERT INTO bill (concept, kind, budget, start_month, end_month) VALUES (?, ?, ?, ?, NULL)', b.concept, b.kind, b.budget, currentMonth());
+      await db.runAsync('INSERT INTO bill (concept, budget, start_month, end_month) VALUES (?, ?, ?, NULL)', b.concept, b.budget, currentMonth());
     }
   });
 
@@ -418,19 +418,19 @@ export const applyImport = (db: SQLiteDatabase, plan: ImportPlan) =>
     const cat = new Map((await db.getAllAsync<{ id: number; name: string }>('SELECT id, name FROM category')).map((c) => [norm(c.name), c.id]));
     for (const c of plan.categoriesNeeded) {
       if (!cat.has(norm(c.name)))
-        cat.set(norm(c.name), await ins('INSERT INTO category (name, kind, sort) VALUES (?, ?, (SELECT COALESCE(MAX(sort), 0) + 1 FROM category))', c.name, c.kind));
+        cat.set(norm(c.name), await ins("INSERT INTO category (name, kind, sort) VALUES (?, 'needs', (SELECT COALESCE(MAX(sort), 0) + 1 FROM category))", c.name));
     }
 
     for (const i of plan.incomes) await ins('INSERT INTO income (month, concept, budget, amount) VALUES (?, ?, ?, ?)', i.month, i.concept, i.budget, i.amount);
     const bills: number[] = [];
     for (const b of plan.bills)
-      bills.push(await ins('INSERT INTO bill (concept, kind, budget, start_month, end_month) VALUES (?, ?, ?, ?, ?)', b.concept, b.kind, b.budget, b.start_month, b.end_month));
+      bills.push(await ins('INSERT INTO bill (concept, budget, start_month, end_month) VALUES (?, ?, ?, ?)', b.concept, b.budget, b.start_month, b.end_month));
     for (const p of plan.payments)
       await ins('INSERT INTO bill_payment (bill_id, month, amount, date, paid) VALUES (?, ?, ?, ?, ?)', bills[p.bill], p.month, p.amount, p.date, p.paid);
     for (const e of plan.expenses)
       await ins('INSERT INTO expense (date, concept, amount, category_id) VALUES (?, ?, ?, ?)', e.date, e.concept, e.amount, e.category ? (cat.get(norm(e.category)) ?? null) : null);
     const goals: number[] = [];
-    for (const g of plan.goals) goals.push(await ins('INSERT INTO savings_goal (name, target, min_monthly, initial) VALUES (?, ?, ?, ?)', g.name, g.target, g.min_monthly, g.initial));
+    for (const g of plan.goals) goals.push(await ins('INSERT INTO savings_goal (name, target, min_monthly, initial, interest_rate) VALUES (?, ?, ?, ?, 0)', g.name, g.target, g.min_monthly, g.initial));
     const invs: number[] = [];
     for (const v of plan.investments)
       invs.push(await ins('INSERT INTO investment (name, initial, monthly, current_value, value_date) VALUES (?, ?, ?, ?, ?)', v.name, v.initial, v.monthly, v.current_value, v.value_date));

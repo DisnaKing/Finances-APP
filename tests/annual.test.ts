@@ -1,17 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { monthSummary, yearSummary, type Kind, type MonthInput } from '../src/lib/calc.ts';
+import { monthSummary, yearSummary, type MonthInput } from '../src/lib/calc.ts';
 
-const pct = { needs: 50, wants: 30, savings: 20 };
-const empty: MonthInput = { incomes: [], bills: [], expenses: [], contributions: [], pct };
+const empty: MonthInput = { incomes: [], bills: [], expenses: [], contributions: [] };
 
 test('yearSummary: 12 filas numeradas y total = suma de columnas', () => {
   const months = Array.from({ length: 12 }, (_, i) =>
     monthSummary({
       ...empty,
       incomes: [{ budget: 0, amount: 1000 * (i + 1) }],
-      expenses: [{ amount: 100 * (i + 1), kind: 'needs' }],
+      expenses: [{ amount: 100 * (i + 1) }],
       contributions: [
         { kind: 'savings', amount: 10 },
         { kind: 'investment', amount: 20 },
@@ -42,8 +41,6 @@ test('yearSummary: año vacío', () => {
 
 // --- Fixture del Excel (datos reales del usuario; gitignored). No imprimir su contenido. ---
 const FIXTURE = new URL('./fixtures/excel.json', import.meta.url);
-const BILL_KIND: Record<string, Kind> = { Necesidades: 'needs', Deseos: 'wants', Ahorros: 'savings' };
-const NEEDS = new Set(['Mercado', 'Transporte', 'Salud', 'Hogar', 'Educación', 'Mascotas']);
 
 test('fixture Excel: el total anual es la suma de los meses esperados', { skip: !existsSync(FIXTURE) }, () => {
   const data = JSON.parse(readFileSync(FIXTURE, 'utf8'));
@@ -52,17 +49,13 @@ test('fixture Excel: el total anual es la suma de los meses esperados', { skip: 
     ms.map((x: any) =>
       monthSummary({
         incomes: x.income,
-        bills: x.bills.map((b: any) => ({ budget: b.budget ?? 0, kind: BILL_KIND[b.kind] ?? 'needs', amount: b.amount })),
-        expenses: x.expenses.map((e: any) => ({
-          amount: e.amount,
-          kind: e.category == null ? null : NEEDS.has(e.category) ? 'needs' : 'wants',
-        })),
+        bills: x.bills.map((b: any) => ({ budget: b.budget ?? 0, amount: b.amount })),
+        expenses: x.expenses.map((e: any) => ({ amount: e.amount })),
         contributions: [
           { kind: 'savings', amount: x.sheet_saved ?? 0 },
           { kind: 'investment', amount: x.sheet_invested ?? 0 },
           { kind: 'debt', amount: x.sheet_debt ?? 0 },
         ],
-        pct,
       }),
     ),
   );

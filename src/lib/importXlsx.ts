@@ -30,7 +30,7 @@ export const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').to
 // Mismas categorías "necesidades" que la semilla (schema.ts); el resto son deseos.
 const NEEDS_CATS = new Set(['mercado', 'transporte', 'salud', 'hogar', 'educación', 'mascotas'].map(norm));
 const KINDS: Record<string, K> = { necesidades: 'needs', deseos: 'wants', ahorros: 'savings' };
-const SETTINGS_KEYS = ['currency', 'pct_needs', 'pct_wants', 'pct_savings']; // semilla de schema.ts
+const SETTINGS_KEYS = ['currency']; // semilla de schema.ts
 const lc = (s: string) => s.toLowerCase();
 
 const str = (v: unknown) => (v == null ? '' : String(v).trim());
@@ -328,8 +328,8 @@ export function validateBackup(json: unknown, tables: readonly string[], maxSche
     for (const row of rows) {
       if (!row || typeof row !== 'object' || Array.isArray(row)) throw new Error(`Fila inválida en "${t}"`);
       for (const [k, v] of Object.entries(row)) {
-        // La clave acaba en una sentencia SQL: solo identificadores. Importes en céntimos = enteros (annual_rate es el único REAL).
-        const okNum = typeof v === 'number' && Number.isFinite(v) && (k === 'annual_rate' || Number.isInteger(v));
+        // La clave acaba en una sentencia SQL: solo identificadores. Importes en céntimos = enteros (annual_rate e interest_rate son REAL).
+        const okNum = typeof v === 'number' && Number.isFinite(v) && (k === 'annual_rate' || k === 'interest_rate' || Number.isInteger(v));
         if (!/^\w+$/.test(k) || !(v === null || typeof v === 'string' || okNum)) throw new Error(`Dato inválido en "${t}"`);
       }
     }

@@ -10,8 +10,6 @@ const XLSX_FILE = new URL('./fixtures/presupuesto.xlsx', import.meta.url);
 const JSON_FILE = new URL('./fixtures/excel.json', import.meta.url);
 const HAVE = existsSync(XLSX_FILE) && existsSync(JSON_FILE);
 const NOW = '2026-11-15';
-const pct = { needs: 50, wants: 30, savings: 20 };
-const NEEDS = new Set(['mercado', 'transporte', 'salud', 'hogar', 'educación', 'mascotas']);
 // Diferencias reales del libro (mes|campo|signo de calculado - Excel), sin importes:
 //  - AGO: la inversión del mes (G19) está tecleada a mano y no cuadra con el registro (y por tanto el restante).
 //  - SEP: un gasto está guardado como texto, que la suma del Excel ignora (y por tanto el restante).
@@ -34,15 +32,14 @@ test('Excel real: totales de cada mes iguales a los del Excel', { skip: !HAVE },
       incomes: plan.incomes.filter((i) => i.month === m),
       bills: plan.payments
         .filter((p) => p.month === m)
-        .map((p) => ({ budget: plan.bills[p.bill].budget, kind: plan.bills[p.bill].kind, amount: p.amount })),
+        .map((p) => ({ budget: plan.bills[p.bill].budget, amount: p.amount })),
       expenses: plan.expenses
         .filter((e) => e.date.slice(0, 7) === m)
-        .map((e) => ({ amount: e.amount, kind: e.category == null ? null : NEEDS.has(e.category.toLowerCase()) ? 'needs' : 'wants' })),
+        .map((e) => ({ amount: e.amount })),
       contributions: [
         ...plan.contributions.filter((c) => c.date.slice(0, 7) === m).map((c) => ({ kind: c.kind, amount: c.amount })),
         { kind: 'debt', amount: x.sheet_debt ?? 0 },
       ],
-      pct,
     };
     const s = monthSummary(input);
     // Cada diferencia con el Excel debe estar avisada en el plan con el mismo importe.
@@ -267,6 +264,6 @@ test('validateBackup: números no finitos o no enteros, y ajustes que faltan', (
   assert.throws(() => validateBackup(t([{ x: 1.5 }]), T, 1));
   assert.doesNotThrow(() => validateBackup(t([{ annual_rate: 0.05 }]), T, 1));
   const set = (keys: string[]) => ({ ...ok, tables: { settings: keys.map((key) => ({ key, value: '1' })) } });
-  assert.doesNotThrow(() => validateBackup(set(['currency', 'pct_needs', 'pct_wants', 'pct_savings']), ['settings'], 1));
-  assert.throws(() => validateBackup(set(['currency']), ['settings'], 1), /Falta el ajuste/);
+  assert.doesNotThrow(() => validateBackup(set(['currency']), ['settings'], 1));
+  assert.throws(() => validateBackup(set([]), ['settings'], 1), /Falta el ajuste/);
 });

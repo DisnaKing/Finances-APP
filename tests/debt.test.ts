@@ -124,14 +124,14 @@ test('debtSummary: orden bola de nieve, totales y freeMonth', () => {
   assert.equal(debtSummary([]).freeMonth, null);
 });
 
-test('monthSummary: aportación kind debt cuenta como debtPaid y en necesidades', () => {
+test('monthSummary: aportación kind debt cuenta como debtPaid', () => {
   const base = {
     incomes: [{ budget: 200000, amount: 200000 }], bills: [], expenses: [],
-    pct: { needs: 50, wants: 30, savings: 20 }, plan: { savings: 0, investment: 0, debt: 15000 },
+    plan: { savings: 0, investment: 0, debt: 15000 },
   };
   const a = monthSummary({ ...base, contributions: [] });
   const b = monthSummary({ ...base, contributions: [{ kind: 'debt', amount: 15000 }] });
-  assert.equal(b.split.needs.actual - a.split.needs.actual, 15000);
+  assert.equal(b.debtPaid - a.debtPaid, 15000);
   assert.equal(a.remaining - b.remaining, 15000);
   assert.deepEqual(b.rows.debt, { budget: 15000, actual: 15000 });
 });

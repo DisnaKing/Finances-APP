@@ -12,7 +12,7 @@ Los datos se guardan **solo en el móvil** (SQLite local). No hay servidor ni cu
 - **Ahorro**: metas con objetivo, aportación mínima mensual, progreso y meses restantes.
 - **Inversión**: activos con lo aportado, valor actual y ganancia/pérdida.
 - **Deudas**: saldo, cuota, interés, tabla de amortización y fecha de fin.
-- **Anual**: totales por mes del año con gráfico; tocar un mes lleva a él.
+- **Totales** (pestaña con dos subpestañas): **Anual** = totales por mes del año con gráfico (tocar un mes lleva a él); **Total** = acumulado de todos los años y una fila por año.
 - **Ajustes**: moneda, categorías, facturas recurrentes (editar/reactivar).
 - **Exportar**: copia de seguridad (JSON) y movimientos (CSV para Excel).
 - **Importar**: el Excel de presupuesto (`.xlsx`) o una copia JSON. Antes de reemplazar los datos muestra un resumen, avisos y las diferencias con los totales del Excel.
@@ -26,7 +26,7 @@ Expo SDK 58 · expo-router · TypeScript estricto · react-native-paper (MD3) ·
 Importes en céntimos enteros; todos los cálculos son funciones puras en `src/lib/calc.ts`.
 
 ```
-app/            pantallas (expo-router): (tabs)/ Inicio, Mes, Ahorro, Inversión + gasto, deudas, anual, ajustes
+app/            pantallas (expo-router): (tabs)/ Inicio, Mes, Ahorro, Inversión, Totales + gasto, deudas, ajustes
 src/db/         esquema SQLite y consultas
 src/lib/        cálculos, dinero, meses, exportación, importación del Excel
 src/components/ componentes compartidos

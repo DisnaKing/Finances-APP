@@ -354,6 +354,16 @@ async function debtPlan(db: SQLiteDatabase, month: string): Promise<number> {
 export const yearInputs = (db: SQLiteDatabase, year: number) =>
   Promise.all(Array.from({ length: 12 }, (_, i) => monthInput(db, `${year}-${String(i + 1).padStart(2, '0')}`)));
 
+/** Primer y último año con algún dato (ingresos, gastos, pagos de facturas o aportaciones); null si no hay nada. */
+export async function dataYears(db: SQLiteDatabase): Promise<[number, number] | null> {
+  const r = await db.getFirstAsync<{ a: string | null; b: string | null }>(
+    `SELECT MIN(y) AS a, MAX(y) AS b FROM (
+       SELECT substr(month, 1, 4) AS y FROM income UNION ALL SELECT substr(date, 1, 4) FROM expense
+       UNION ALL SELECT substr(month, 1, 4) FROM bill_payment UNION ALL SELECT substr(date, 1, 4) FROM contribution)`,
+  );
+  return r?.a && r.b ? [Number(r.a), Number(r.b)] : null;
+}
+
 // --- Ajustes: escritura ---
 
 const setSetting = (db: SQLiteDatabase, key: string, value: string) =>

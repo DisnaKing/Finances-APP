@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { monthSummary, yearSummary, type MonthInput } from '../src/lib/calc.ts';
+import { grandTotal, monthSummary, yearSummary, type MonthInput } from '../src/lib/calc.ts';
 
 const empty: MonthInput = { incomes: [], bills: [], expenses: [], contributions: [] };
 
@@ -67,4 +67,10 @@ test('fixture Excel: el total anual es la suma de los meses esperados', { skip: 
   };
   for (const k of ['income', 'remaining', 'spent'] as const)
     assert.ok(total[k] === exp[k], `${k} diff=${total[k] - exp[k]}`);
+});
+
+test('grandTotal: suma los totales de cada año', () => {
+  const y = (income: number, spent: number) => ({ income, spent, saved: 1, invested: 2, debtPaid: 3, remaining: income - spent - 6 });
+  assert.deepEqual(grandTotal([y(100, 10), y(50, 5)]), { income: 150, spent: 15, saved: 2, invested: 4, debtPaid: 6, remaining: 150 - 15 - 12 });
+  assert.deepEqual(grandTotal([]), { income: 0, spent: 0, saved: 0, invested: 0, debtPaid: 0, remaining: 0 });
 });

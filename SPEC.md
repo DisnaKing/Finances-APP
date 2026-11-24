@@ -26,7 +26,8 @@ app/                    rutas expo-router
   (tabs)/ahorro.tsx     Metas de ahorro
   (tabs)/inversion.tsx  Cartera
   gasto.tsx             modal: añadir/editar gasto
-  deudas.tsx, anual.tsx, ajustes.tsx   (desde menú de Inicio)
+  deudas.tsx, ajustes.tsx   (desde menú de Inicio)
+  (tabs)/totales.tsx   (pestaña Totales con dos subpestañas: Anual | Total)
 src/
   theme.ts              esquemas MD3 claro/oscuro
   db/schema.ts          migraciones (PRAGMA user_version)
@@ -110,6 +111,8 @@ Deuda (d), `r = annual_rate/100/12`, `cur` = mes en curso, `start` = mes de `sta
 - `monthsLeft` usa NPER (paridad con el Excel); puede diferir en ±1 mes de la longitud del calendario por el redondeo mensual de intereses.
 
 Anual (año Y): por cada mes, `income, spent, saved, invested, debtPaid, remaining`; fila total = sumas.
+
+Total (toda la vida de la app): una fila por año con movimientos (`yearSummary(...).total`) y, arriba, `grandTotal` = suma de los años. Mismas columnas que Anual.
 
 ## Entrada de importes (`src/lib/money.ts`)
 - `parseAmount("1,8+1+1.2") → 400` céntimos. Admite `+ - * /`, paréntesis, coma o punto decimal, espacios, `=` inicial opcional. Parser propio (sin `eval`/`Function`). Inválido → `null`. Redondeo a céntimo al final.

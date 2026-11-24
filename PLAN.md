@@ -69,7 +69,7 @@ Todo lo demás (totales, restante, progreso, NPER, amortización, rendimiento) e
 | background / surface (lino) | `#F8F5EE` | `#1A1C17` | Fondo |
 | error | `#BA1A1A` | `#FFB4AB` | Pasarse del presupuesto, saldo negativo |
 
-- **Navegación inferior** (4 pestañas): Inicio · Mes · Ahorro · Inversión. Deudas, Anual y Ajustes se abren desde el menú de Inicio.
+- **Navegación inferior** (5 pestañas): Inicio · Mes · Ahorro · Inversión · Totales (subpestañas Anual | Total). Deudas y Ajustes se abren desde el menú de Inicio.
 - **FAB "+"** fijo en todas las pestañas para añadir un gasto.
 
 ## 5. Fases

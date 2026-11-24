@@ -14,7 +14,7 @@ const COL_W = 92; // ancho de columna de la tabla
 const HEAD = ['Mes', 'Ingresos', 'Gastado', 'Ahorro+Inv.', 'Deuda', 'Restante'];
 const key = (year: number, mo: number) => `${year}-${String(mo).padStart(2, '0')}`;
 
-export default function Anual() {
+export function AnnualView() {
   const db = useSQLiteContext();
   const c = useTheme().colors;
   const { setMonth } = useMonth();
@@ -42,7 +42,7 @@ export default function Anual() {
   const h = (x: number) => (x > 0 ? Math.max(2, Math.round((x / max) * BAR_H)) : 0);
   const open = (mo: number) => {
     setMonth(key(year, mo));
-    router.dismissTo('/');
+    router.navigate('/');
   };
   const cell = (i: number, bold = false, color?: string) => [
     { width: COL_W, textAlign: i === 0 ? ('left' as const) : ('right' as const), color },

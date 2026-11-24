@@ -21,7 +21,6 @@ export default function RootLayout() {
               <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Inicio' }} />
               <Stack.Screen name="gasto" options={{ presentation: 'modal', title: 'Gasto' }} />
               <Stack.Screen name="deudas" options={{ title: 'Deudas' }} />
-              <Stack.Screen name="anual" options={{ title: 'Anual' }} />
               <Stack.Screen name="ajustes" options={{ title: 'Ajustes' }} />
             </Stack>
           </ThemeProvider>

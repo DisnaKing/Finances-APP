@@ -27,7 +27,7 @@ const tab = (title: string, icon: Icon, activeBg: string, activeIcon: string) =>
 
 function HomeMenu() {
   const [open, setOpen] = useState(false);
-  const go = (path: '/deudas' | '/anual' | '/ajustes') => {
+  const go = (path: '/deudas' | '/ajustes') => {
     setOpen(false);
     router.push(path);
   };
@@ -38,7 +38,6 @@ function HomeMenu() {
       anchor={<IconButton icon="dots-vertical" accessibilityLabel="Más opciones" onPress={() => setOpen(true)} />}
     >
       <Menu.Item leadingIcon="credit-card-outline" title="Deudas" onPress={() => go('/deudas')} />
-      <Menu.Item leadingIcon="calendar-month" title="Anual" onPress={() => go('/anual')} />
       <Menu.Item leadingIcon="cog" title="Ajustes" onPress={() => go('/ajustes')} />
     </Menu>
   );
@@ -68,6 +67,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="mes" options={t('Mes', 'format-list-bulleted')} />
       <Tabs.Screen name="ahorro" options={t('Ahorro', 'piggy-bank')} />
       <Tabs.Screen name="inversion" options={t('Inversión', 'chart-line')} />
+      <Tabs.Screen name="totales" options={t('Totales', 'calendar-month')} />
     </Tabs>
   );
 }

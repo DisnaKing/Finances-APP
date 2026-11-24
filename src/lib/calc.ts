@@ -242,3 +242,11 @@ export function yearSummary(months: MonthSummary[]): { rows: YearRow[]; total: O
   const t = (k: Exclude<keyof YearRow, 'month'>) => sum(rows.map((r) => r[k]));
   return { rows, total: { income: t('income'), spent: t('spent'), saved: t('saved'), invested: t('invested'), debtPaid: t('debtPaid'), remaining: t('remaining') } };
 }
+
+export type Totals = Omit<YearRow, 'month'>;
+
+/** Total de todos los años: suma de las filas de total de cada año. */
+export function grandTotal(years: Totals[]): Totals {
+  const t = (k: keyof Totals) => sum(years.map((y) => y[k]));
+  return { income: t('income'), spent: t('spent'), saved: t('saved'), invested: t('invested'), debtPaid: t('debtPaid'), remaining: t('remaining') };
+}

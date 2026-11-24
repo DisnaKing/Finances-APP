@@ -145,3 +145,13 @@ test('unitsFor / avgBuyPrice: unidades y precio medio ponderado', () => {
   assert.equal(avgBuyPrice([{ amount: 10000, price: null }]), null);
   assert.equal(avgBuyPrice([]), null);
 });
+
+test('accruedInterest: con fecha de creación el monto inicial rinde desde esa fecha', () => {
+  // 12000 € iniciales creados el 2026-01-01, sin aportaciones: enero 120,00 € y febrero 121,20 €
+  assert.equal(accruedInterest(12, 1200000, [], '2026-02-28', '2026-01-01'), 24120);
+  assert.equal(accruedInterest(12, 1200000, [], '2026-01-30', '2026-01-01'), 0); // aún no es fin de mes
+  // creada a mitad de mes (día 15 de febrero, 28 días): 14/28 del mes
+  assert.equal(accruedInterest(12, 1200000, [], '2026-02-28', '2026-02-15'), 6000);
+  // la fecha antecede a la primera aportación: el inicial ya rinde antes
+  assert.equal(accruedInterest(12, 1000000, [c('2026-02-01', 200000)], '2026-02-28', '2026-01-01'), 10000 + 12100); // enero 100,00; febrero 1% de (10.100 + 2.000) €
+});

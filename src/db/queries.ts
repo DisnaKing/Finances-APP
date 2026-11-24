@@ -222,6 +222,7 @@ export type Goal = {
   min_monthly: number;
   initial: number;
   interest_rate: number; // TAE anual en %; 0 = no es cuenta remunerada
+  start_date: string | null; // fecha de creación (ISO); el monto inicial rinde desde ahí
   contrib: number;
 };
 export type Investment = {
@@ -250,14 +251,14 @@ const contribSum = (kind: ContribKind, table: string) =>
 export const listGoals = (db: SQLiteDatabase) =>
   db.getAllAsync<Goal>(`SELECT *, ${contribSum('savings', 'savings_goal')} FROM savings_goal ORDER BY id`);
 
-export const addGoal = (db: SQLiteDatabase, name: string, target: number, min_monthly: number, initial: number, interest_rate: number) =>
+export const addGoal = (db: SQLiteDatabase, name: string, target: number, min_monthly: number, initial: number, interest_rate: number, start_date: string | null) =>
   write(() =>
-    db.runAsync('INSERT INTO savings_goal (name, target, min_monthly, initial, interest_rate) VALUES (?, ?, ?, ?, ?)', name, target, min_monthly, initial, interest_rate),
+    db.runAsync('INSERT INTO savings_goal (name, target, min_monthly, initial, interest_rate, start_date) VALUES (?, ?, ?, ?, ?, ?)', name, target, min_monthly, initial, interest_rate, start_date),
   );
 
-export const updateGoal = (db: SQLiteDatabase, id: number, name: string, target: number, min_monthly: number, initial: number, interest_rate: number) =>
+export const updateGoal = (db: SQLiteDatabase, id: number, name: string, target: number, min_monthly: number, initial: number, interest_rate: number, start_date: string | null) =>
   write(() =>
-    db.runAsync('UPDATE savings_goal SET name = ?, target = ?, min_monthly = ?, initial = ?, interest_rate = ? WHERE id = ?', name, target, min_monthly, initial, interest_rate, id),
+    db.runAsync('UPDATE savings_goal SET name = ?, target = ?, min_monthly = ?, initial = ?, interest_rate = ?, start_date = ? WHERE id = ?', name, target, min_monthly, initial, interest_rate, start_date, id),
   );
 
 /** Aportaciones de una meta agrupadas por mes ('YYYY-MM' → céntimos), para calcular intereses. */

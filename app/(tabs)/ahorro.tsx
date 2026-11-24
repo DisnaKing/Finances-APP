@@ -4,6 +4,7 @@ import { Button, Card, Dialog, FAB, HelperText, List, Portal, ProgressBar, Switc
 import { router, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { AmountField } from '@/src/components/AmountField';
+import { DateField, validDate } from '@/src/components/DateField';
 import { ConfirmDialog } from '@/src/components/ConfirmDialog';
 import { ContribDialog } from '@/src/components/ContribDialog';
 import { useGuard } from '@/src/components/useGuard';
@@ -30,6 +31,7 @@ function GoalDialog(p: {
   const [target, setTarget] = useState(goal ? centsToInput(goal.target) : '');
   const [min, setMin] = useState(goal ? centsToInput(goal.min_monthly) : '');
   const [initial, setInitial] = useState(goal ? centsToInput(goal.initial) : '');
+  const [startDate, setStartDate] = useState(goal ? (goal.start_date ?? '') : today()); // '' = sin fecha (metas antiguas)
   const [remun, setRemun] = useState((goal?.interest_rate ?? 0) > 0);
   const [rate, setRate] = useState(goal && goal.interest_rate > 0 ? String(goal.interest_rate).replace('.', ',') : '');
   const [busy, run] = useGuard();
@@ -44,12 +46,15 @@ function GoalDialog(p: {
   const errT = target.trim() !== '' && t !== null && t <= 0 ? 'La meta debe ser mayor que 0' : undefined;
   const errM = m !== null && m < 0 ? 'No puede ser negativa' : undefined;
   const errI = i !== null && i < 0 ? 'No puede ser negativo' : undefined;
-  const ok = name.trim() !== '' && t !== null && t > 0 && m !== null && m >= 0 && i !== null && i >= 0 && rt !== null && !busy;
+  const hasDate = startDate !== '';
+  const td = today();
+  const dateOk = !hasDate || (validDate(startDate) && startDate <= td);
+  const ok = dateOk && name.trim() !== '' && t !== null && t > 0 && m !== null && m >= 0 && i !== null && i >= 0 && rt !== null && !busy;
   const save = () => {
     if (!ok) return;
     return run(async () => {
-      if (goal) await q.updateGoal(db, goal.id, name.trim(), t, m, i, rt!);
-      else await q.addGoal(db, name.trim(), t, m, i, rt!);
+      if (goal) await q.updateGoal(db, goal.id, name.trim(), t, m, i, rt!, hasDate ? startDate : null);
+      else await q.addGoal(db, name.trim(), t, m, i, rt!, hasDate ? startDate : null);
       p.onClose(true);
     }, true);
   };
@@ -63,6 +68,11 @@ function GoalDialog(p: {
           <AmountField label="Meta" value={target} onChange={setTarget} error={errT} />
           <AmountField label="Contribución mínima mensual" value={min} onChange={setMin} error={errM} />
           <AmountField label="Monto inicial" value={initial} onChange={setInitial} error={errI} />
+          {hasDate ? (
+            <DateField label="Fecha de creación" value={startDate} onChange={setStartDate} max={td} />
+          ) : (
+            <Button icon="calendar" onPress={() => setStartDate(td)}>Añadir fecha de creación</Button>
+          )}
           <View style={styles.switchRow}>
             <Text variant="bodyLarge">Cuenta remunerada</Text>
             <Switch value={remun} onValueChange={setRemun} />
@@ -118,7 +128,7 @@ export default function Ahorro() {
       const now = today();
       for (const x of g) {
         if (x.interest_rate <= 0) continue;
-        acc[x.id] = accruedInterest(x.interest_rate, x.initial, await q.goalContribs(db, x.id), now);
+        acc[x.id] = accruedInterest(x.interest_rate, x.initial, await q.goalContribs(db, x.id), now, x.start_date);
       }
       if (n !== seq.current) return; // llegó otra carga más reciente
       setAccrued(acc);

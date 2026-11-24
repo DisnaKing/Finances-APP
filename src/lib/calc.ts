@@ -48,14 +48,17 @@ export function goalStats(g: { target: number; min_monthly: number; initial: num
  * interés del mes = round(TAE/100/12 · saldo medio del mes), donde el saldo medio pondera cada aportación por los días
  * que lleva en la cuenta (una aportación el día d cuenta desde ese día). El interés se abona el ÚLTIMO día del mes:
  * solo se cuenta si ese día ya ha llegado (≤ `untilDate`) y entra en el saldo del mes siguiente (compuesto).
- * Empieza en el mes de la primera aportación, con `initial` ya en la cuenta. `untilDate`: 'YYYY-MM-DD' (hoy).
+ * `startDate` (fecha de creación): el monto inicial cuenta desde ese día, como una aportación más. Sin fecha, empieza en el mes de
+ * la primera aportación con `initial` ya en la cuenta. `untilDate`: 'YYYY-MM-DD' (hoy).
  */
 export type DatedAmount = { date: string; amount: number };
-export function accruedInterest(rate: number, initial: number, contribs: DatedAmount[], untilDate: string): number {
-  if (!(rate > 0) || contribs.length === 0) return 0;
-  const cs = [...contribs].sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
+export function accruedInterest(rate: number, initial: number, contribs: DatedAmount[], untilDate: string, startDate: string | null = null): number {
+  const dated = !!startDate && initial > 0; // el inicial entra como aportación fechada
+  const all = dated ? [{ date: startDate!, amount: initial }, ...contribs] : contribs;
+  if (!(rate > 0) || all.length === 0) return 0;
+  const cs = [...all].sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
   const r = rate / 100 / 12;
-  let balance = initial;
+  let balance = dated ? 0 : initial;
   let interest = 0;
   let i = 0;
   for (let m = cs[0].date.slice(0, 7); ; m = addM(m, 1)) {

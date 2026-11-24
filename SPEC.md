@@ -39,7 +39,7 @@ src/
 tests/                  *.test.ts + fixtures del Excel (no se suben a EAS)
 ```
 
-## Esquema SQLite (v3)
+## Esquema SQLite (v4)
 ```sql
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 -- keys: currency('€')
@@ -66,7 +66,8 @@ CREATE TABLE expense (id INTEGER PRIMARY KEY, date TEXT NOT NULL, concept TEXT N
 
 CREATE TABLE savings_goal (id INTEGER PRIMARY KEY, name TEXT NOT NULL, target INTEGER NOT NULL,
   min_monthly INTEGER NOT NULL DEFAULT 0, initial INTEGER NOT NULL DEFAULT 0,
-  interest_rate REAL NOT NULL DEFAULT 0); -- v2: TAE anual en %; 0 = cuenta no remunerada
+  interest_rate REAL NOT NULL DEFAULT 0, -- v2: TAE anual en %; 0 = cuenta no remunerada
+  start_date TEXT); -- v4: fecha de creación; el monto inicial rinde desde ese día (NULL = desde la 1.ª aportación)
 
 CREATE TABLE investment (id INTEGER PRIMARY KEY, name TEXT NOT NULL, initial INTEGER NOT NULL DEFAULT 0,
   monthly INTEGER NOT NULL DEFAULT 0, current_value INTEGER NOT NULL DEFAULT 0, value_date TEXT);
@@ -97,7 +98,7 @@ Mes M:
 
 Ahorro (meta g): `total = initial + Σ contribs(g)`; `left = max(target − total, 0)`; `progress = target>0 ? min(total/target,1) : 0`; `monthsLeft = min_monthly>0 && left>0 ? ceil(left/min_monthly) : null`.
 
-Cuenta remunerada (meta con `interest_rate > 0`): el interés ya abonado (último día de cada mes) **se suma al saldo**: `total = initial + Σ contribs + interés abonado`. No es una aportación: no cuenta en `saved` ni en `remaining` del mes. `accruedInterest`: cada mes se aplica TAE/12 sobre el saldo de ese mes (media ponderada por los días que cada aportación lleva en la cuenta), redondeado; se abona el último día del mes (solo cuenta si ya ha llegado) y entra en el saldo del mes siguiente. `yearlyInterest(rate, saldo)`: 12 meses sin aportaciones.
+Cuenta remunerada (meta con `interest_rate > 0`): el interés ya abonado (último día de cada mes) **se suma al saldo**: `total = initial + Σ contribs + interés abonado`. No es una aportación: no cuenta en `saved` ni en `remaining` del mes. `accruedInterest`: cada mes se aplica TAE/12 sobre el saldo de ese mes (media ponderada por los días que cada aportación lleva en la cuenta), redondeado; se abona el último día del mes (solo cuenta si ya ha llegado) y entra en el saldo del mes siguiente. El monto inicial cuenta como aportación fechada en `start_date` (fecha de creación de la meta); sin fecha, el interés empieza en el mes de la primera aportación. `yearlyInterest(rate, saldo)`: 12 meses sin aportaciones.
 
 Inversión (activo a): `contributed = initial + Σ contribs(a)`; valor mostrado `value = value_date null ? contributed : current_value + Σ contribs(a con date > value_date)` (las aportaciones del mismo día ya están en el valor); `gain = value − contributed`; `gainPct = contributed>0 ? gain/contributed : 0`. Sin `value_date` se muestra «Sin valorar» en lugar del rendimiento. Totales = suma.
 

@@ -40,6 +40,21 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "990798a3-8780-4685-bec2-ddbc504b3b0e"
+      }
+    },
+    "owner": "disnaking",
+    "updates": {
+      "url": "https://u.expo.dev/990798a3-8780-4685-bec2-ddbc504b3b0e"
+    },
+    "ios": {}
   }
 }

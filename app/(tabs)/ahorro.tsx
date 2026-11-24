@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Button, Card, Dialog, FAB, List, Portal, ProgressBar, Text, TextInput, useTheme } from 'react-native-paper';
+import { Button, Card, Dialog, FAB, HelperText, List, Portal, ProgressBar, Switch, Text, TextInput, useTheme } from 'react-native-paper';
 import { router, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { AmountField } from '@/src/components/AmountField';
@@ -9,9 +9,9 @@ import { ContribDialog } from '@/src/components/ContribDialog';
 import { useGuard } from '@/src/components/useGuard';
 import { useKeyboardHeight } from '@/src/components/useKeyboardHeight';
 import * as q from '@/src/db/queries';
-import { goalStats } from '@/src/lib/calc';
+import { accruedInterest, goalStats, yearlyInterest } from '@/src/lib/calc';
 import { centsToInput, formatMoney, formatPct, parseAmount } from '@/src/lib/money';
-import { formatDate } from '@/src/lib/month';
+import { currentMonth, formatDate } from '@/src/lib/month';
 
 const parse = (t: string) => (t.trim() === '' ? 0 : parseAmount(t)); // vacío = 0
 
@@ -30,21 +30,26 @@ function GoalDialog(p: {
   const [target, setTarget] = useState(goal ? centsToInput(goal.target) : '');
   const [min, setMin] = useState(goal ? centsToInput(goal.min_monthly) : '');
   const [initial, setInitial] = useState(goal ? centsToInput(goal.initial) : '');
+  const [remun, setRemun] = useState((goal?.interest_rate ?? 0) > 0);
+  const [rate, setRate] = useState(goal && goal.interest_rate > 0 ? String(goal.interest_rate).replace('.', ',') : '');
   const [busy, run] = useGuard();
   const [askDel, setAskDel] = useState(false);
   const kb = useKeyboardHeight();
+  const rs = rate.trim().replace(',', '.');
+  const rt = !remun ? 0 : /^\d+(\.\d+)?$/.test(rs) && Number(rs) > 0 && Number(rs) <= 100 ? Number(rs) : null;
+  const errR = remun && rt === null ? 'Indica un porcentaje entre 0 y 100' : undefined;
   const t = parse(target);
   const m = parse(min);
   const i = parse(initial);
   const errT = target.trim() !== '' && t !== null && t <= 0 ? 'La meta debe ser mayor que 0' : undefined;
   const errM = m !== null && m < 0 ? 'No puede ser negativa' : undefined;
   const errI = i !== null && i < 0 ? 'No puede ser negativo' : undefined;
-  const ok = name.trim() !== '' && t !== null && t > 0 && m !== null && m >= 0 && i !== null && i >= 0 && !busy;
+  const ok = name.trim() !== '' && t !== null && t > 0 && m !== null && m >= 0 && i !== null && i >= 0 && rt !== null && !busy;
   const save = () => {
     if (!ok) return;
     return run(async () => {
-      if (goal) await q.updateGoal(db, goal.id, name.trim(), t, m, i);
-      else await q.addGoal(db, name.trim(), t, m, i);
+      if (goal) await q.updateGoal(db, goal.id, name.trim(), t, m, i, rt!);
+      else await q.addGoal(db, name.trim(), t, m, i, rt!);
       p.onClose(true);
     }, true);
   };
@@ -58,6 +63,23 @@ function GoalDialog(p: {
           <AmountField label="Meta" value={target} onChange={setTarget} error={errT} />
           <AmountField label="Contribución mínima mensual" value={min} onChange={setMin} error={errM} />
           <AmountField label="Monto inicial" value={initial} onChange={setInitial} error={errI} />
+          <View style={styles.switchRow}>
+            <Text variant="bodyLarge">Cuenta remunerada</Text>
+            <Switch value={remun} onValueChange={setRemun} />
+          </View>
+          {remun && (
+            <TextInput
+              mode="outlined"
+              dense
+              label="Interés anual (TAE %)"
+              value={rate}
+              onChangeText={setRate}
+              error={!!errR}
+              keyboardType="decimal-pad"
+              autoCorrect={false}
+            />
+          )}
+          {errR && <HelperText type="error">{errR}</HelperText>}
         </ScrollView>
       </Dialog.ScrollArea>
       <Dialog.Actions>
@@ -84,13 +106,24 @@ export default function Ahorro() {
   const [goals, setGoals] = useState<q.Goal[]>([]);
   const [regs, setRegs] = useState<q.Contribution[]>([]);
   const [dlg, setDlg] = useState<Dlg>(null);
+  const [accrued, setAccrued] = useState<Record<number, number>>({}); // id → interés devengado (céntimos)
   const seq = useRef(0);
 
   const load = useCallback(async () => {
     const n = ++seq.current;
     try {
       const [g, r, st] = await Promise.all([q.listGoals(db), q.listContributions(db, 'savings'), q.getSettings(db)]);
+      // Interés devengado desde la primera aportación hasta el mes actual (informativo; no cuenta en el saldo).
+      const acc: Record<number, number> = {};
+      const now = currentMonth();
+      for (const x of g) {
+        if (x.interest_rate <= 0) continue;
+        const byMonth = await q.goalContribByMonth(db, x.id);
+        const first = Object.keys(byMonth).sort()[0];
+        acc[x.id] = first && first <= now ? accruedInterest(x.interest_rate, x.initial, byMonth, first, now) : 0;
+      }
       if (n !== seq.current) return; // llegó otra carga más reciente
+      setAccrued(acc);
       setGoals(g);
       setRegs(r);
       setCur(st.currency);
@@ -143,6 +176,11 @@ export default function Ahorro() {
                   {s.left > 0 ? `falta ${m(s.left)} (${formatPct(s.progress, false)})` : 'meta alcanzada'}
                   {s.monthsLeft !== null ? ` · ${s.monthsLeft} ${s.monthsLeft === 1 ? 'mes restante' : 'meses restantes'}` : ''}
                 </Text>
+                {g.interest_rate > 0 && (
+                  <Text variant="bodySmall">
+                    Remunerada {formatPct(g.interest_rate / 100, false)} · devengado {m(accrued[g.id] ?? 0)} · ≈ {m(yearlyInterest(g.interest_rate, s.total))}/año
+                  </Text>
+                )}
               </View>
             )}
             right={() => (
@@ -200,5 +238,6 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', paddingVertical: 8 },
   bar: { height: 8, borderRadius: 4, marginVertical: 4 },
   amt: { alignSelf: 'center' },
+  switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 8 },
   fab: { position: 'absolute', right: 16, bottom: 16 },
 });

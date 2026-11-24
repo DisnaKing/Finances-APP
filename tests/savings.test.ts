@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { goalStats, investmentStats, investmentTotals, investmentValue } from '../src/lib/calc.ts';
+import { accruedInterest, yearlyInterest, goalStats, investmentStats, investmentTotals, investmentValue } from '../src/lib/calc.ts';
 
 test('goalStats: caso normal', () => {
   const s = goalStats({ target: 100000, min_monthly: 30000, initial: 10000 }, 20000);
@@ -101,4 +101,24 @@ test('investmentValue: valorada + aportación posterior', () => {
 test('investmentValue: aportación el mismo día ya está en el valor', () => {
   // contribAfter cuenta solo date > value_date; la del mismo día no se suma otra vez
   assert.equal(investmentValue({ current_value: 3000, value_date: '2026-05-10' }, 2500, 0), 3000);
+});
+
+test('accruedInterest: tasa 0 o sin saldo -> 0', () => {
+  assert.equal(accruedInterest(0, 100000, {}, '2026-01', '2026-12'), 0);
+  assert.equal(accruedInterest(3, 0, {}, '2026-01', '2026-12'), 0);
+});
+
+test('accruedInterest: interés mensual compuesto sobre saldo inicial', () => {
+  // 12000,00 € al 12 % anual = 1 % mensual; 2 meses: 120 + 121,20 = 241,20
+  assert.equal(accruedInterest(12, 1200000, {}, '2026-01', '2026-02'), 24120);
+});
+
+test('accruedInterest: las aportaciones previas al inicio cuentan como saldo', () => {
+  assert.equal(accruedInterest(12, 0, { '2025-12': 1200000 }, '2026-01', '2026-01'), 12000);
+});
+
+test('yearlyInterest: 12 meses sin aportaciones', () => {
+  assert.equal(yearlyInterest(0, 100000), 0);
+  const y = yearlyInterest(12, 1000000);
+  assert.ok(y > 120000 && y < 130000, String(y)); // ≈ 12,68 %
 });

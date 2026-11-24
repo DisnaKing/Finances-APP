@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Card, Dialog, FAB, HelperText, List, Portal, Text, TextInput, useTheme } from 'react-native-paper';
 import { router, useFocusEffect } from 'expo-router';
@@ -10,7 +10,8 @@ import { DateField, validDate } from '@/src/components/DateField';
 import { useGuard } from '@/src/components/useGuard';
 import { useKeyboardHeight } from '@/src/components/useKeyboardHeight';
 import * as q from '@/src/db/queries';
-import { avgBuyPrice, investmentStats, investmentTotals, investmentValue, unitsFor } from '@/src/lib/calc';
+import { onQuotesUpdated, refreshQuotes } from '@/src/db/quotesSync';
+import { autoValue, avgBuyPrice, investmentStats, investmentTotals, investmentValue, unitsFor } from '@/src/lib/calc';
 import { centsToInput, formatMoney, formatPct, parseAmount } from '@/src/lib/money';
 import { formatDate, today } from '@/src/lib/month';
 
@@ -31,6 +32,8 @@ function InvDialog(p: {
   const [name, setName] = useState(inv?.name ?? '');
   const [initial, setInitial] = useState(inv ? centsToInput(inv.initial) : '');
   const [monthly, setMonthly] = useState(inv ? centsToInput(inv.monthly) : '');
+  const [ticker, setTicker] = useState(inv?.ticker ?? '');
+  const tk = ticker.trim().toUpperCase() || null;
   const [busy, run] = useGuard();
   const [askDel, setAskDel] = useState(false);
   const kb = useKeyboardHeight();
@@ -42,8 +45,8 @@ function InvDialog(p: {
   const save = () => {
     if (!ok) return;
     return run(async () => {
-      if (inv) await q.updateInvestment(db, inv.id, name.trim(), i, m);
-      else await q.addInvestment(db, name.trim(), i, m);
+      if (inv) await q.updateInvestment(db, inv.id, name.trim(), i, m, tk);
+      else await q.addInvestment(db, name.trim(), i, m, tk);
       p.onClose(true);
     }, true);
   };
@@ -56,6 +59,8 @@ function InvDialog(p: {
           <TextInput mode="outlined" dense label="Nombre" value={name} onChangeText={setName} />
           <AmountField label="Aportación inicial" value={initial} onChange={setInitial} error={errI} />
           <AmountField label="Aportación mensual" value={monthly} onChange={setMonthly} error={errM} />
+          <TextInput mode="outlined" dense label="Ticker (opcional, p. ej. NVDA)" value={ticker} onChangeText={setTicker} autoCapitalize="characters" autoCorrect={false} style={{ marginTop: 16 }} />
+          <HelperText type="info">Con ticker, el valor se calcula con el precio de mercado y las unidades de tus aportaciones con precio de compra.</HelperText>
         </ScrollView>
       </Dialog.ScrollArea>
       <Dialog.Actions>
@@ -132,6 +137,16 @@ export default function Inversion() {
     }
   }, [db]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
+  useEffect(() => onQuotesUpdated(load), [load]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [msg, setMsg] = useState('');
+  const refresh = async () => {
+    setRefreshing(true);
+    const r = await refreshQuotes(db, true);
+    setMsg(r.failed.length ? `No se pudo obtener: ${r.failed.join(', ')}` : r.updated ? 'Precios actualizados' : '');
+    setRefreshing(false);
+    load();
+  };
 
   const m = (x: number) => formatMoney(x, cur);
   const close = (changed: boolean) => {
@@ -139,7 +154,8 @@ export default function Inversion() {
     if (changed) load();
   };
   const rows = invs.map((inv) => {
-    const value = investmentValue(inv, inv.initial + inv.contrib, inv.contrib_after);
+    const auto = !!inv.ticker && inv.quote_cents !== null;
+    const value = auto ? autoValue(inv, inv.quote_cents!) : investmentValue(inv, inv.initial + inv.contrib, inv.contrib_after);
     return { inv, value, s: investmentStats({ initial: inv.initial, current_value: value }, inv.contrib) };
   });
   const avg: Record<number, number | null> = Object.fromEntries(invs.map((inv) => [inv.id, avgBuyPrice(regs.filter((r) => r.target_id === inv.id))]));
@@ -168,6 +184,10 @@ export default function Inversion() {
         </Card>
 
         <Text variant="titleMedium" style={styles.title}>Activos</Text>
+        {invs.some((x) => x.ticker) && (
+          <Button icon="refresh" loading={refreshing} disabled={refreshing} onPress={refresh}>Actualizar precios</Button>
+        )}
+        {msg !== '' && <HelperText type="info">{msg}</HelperText>}
         {invs.length === 0 && (
           <View style={styles.empty}>
             <Text variant="bodyMedium">Aún no tienes inversiones.</Text>
@@ -182,7 +202,19 @@ export default function Inversion() {
               <View>
                 <Text variant="bodySmall">Aportado {m(s.contributed)}</Text>
                 {avg[inv.id] != null && <Text variant="bodySmall">Precio medio de compra {m(avg[inv.id]!)}</Text>}
-                {inv.value_date === null ? (
+                {inv.ticker ? (
+                  inv.quote_cents === null ? (
+                    <Text variant="bodySmall">{inv.ticker}: sin precio todavía</Text>
+                  ) : (
+                    <>
+                      <Text variant="bodySmall" style={{ color: gainColor(s.gain) }}>
+                        Rendimiento {m(s.gain)} ({formatPct(s.gainPct)})
+                      </Text>
+                      <Text variant="bodySmall">{inv.ticker} a {m(inv.quote_cents)} · {formatDate(inv.quote_at!.slice(0, 10))}</Text>
+                      {inv.initial + inv.unpriced > 0 && <Text variant="bodySmall">{m(inv.initial + inv.unpriced)} sin precio de compra: cuentan a coste</Text>}
+                    </>
+                  )
+                ) : inv.value_date === null ? (
                   <Text variant="bodySmall">Sin valorar</Text>
                 ) : (
                   <>
@@ -193,7 +225,7 @@ export default function Inversion() {
                   </>
                 )}
                 <View style={styles.actions}>
-                  <Button compact onPress={() => setDlg({ t: 'value', inv, value })}>Actualizar valor</Button>
+                  {!inv.ticker && <Button compact onPress={() => setDlg({ t: 'value', inv, value })}>Actualizar valor</Button>}
                   <Button compact onPress={() => setDlg({ t: 'contrib', targetId: inv.id, title: inv.name, defaultAmount: inv.monthly, c: null })}>Aportar</Button>
                 </View>
               </View>

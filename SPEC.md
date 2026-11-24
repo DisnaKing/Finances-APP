@@ -39,7 +39,7 @@ src/
 tests/                  *.test.ts + fixtures del Excel (no se suben a EAS)
 ```
 
-## Esquema SQLite (v4)
+## Esquema SQLite (v5)
 ```sql
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 -- keys: currency('€')
@@ -70,7 +70,8 @@ CREATE TABLE savings_goal (id INTEGER PRIMARY KEY, name TEXT NOT NULL, target IN
   start_date TEXT); -- v4: fecha de creación; el monto inicial rinde desde ese día (NULL = desde la 1.ª aportación)
 
 CREATE TABLE investment (id INTEGER PRIMARY KEY, name TEXT NOT NULL, initial INTEGER NOT NULL DEFAULT 0,
-  monthly INTEGER NOT NULL DEFAULT 0, current_value INTEGER NOT NULL DEFAULT 0, value_date TEXT);
+  monthly INTEGER NOT NULL DEFAULT 0, current_value INTEGER NOT NULL DEFAULT 0, value_date TEXT,
+  ticker TEXT, quote_cents INTEGER, quote_at TEXT); -- v5: símbolo de mercado y último precio por unidad (moneda de la app)
 
 CREATE TABLE debt (id INTEGER PRIMARY KEY, name TEXT NOT NULL, principal INTEGER NOT NULL,
   min_payment INTEGER NOT NULL, annual_rate REAL NOT NULL DEFAULT 0, start_date TEXT NOT NULL);
@@ -82,7 +83,9 @@ CREATE TABLE contribution (id INTEGER PRIMARY KEY, date TEXT NOT NULL,
   price INTEGER); -- v3: precio de compra por unidad (céntimos); NULL = sin registrar. Solo inversiones.
 ```
 
-Inversión con precio: `unidades = amount / price`; `precio medio = Σ amount / Σ unidades` de las aportaciones con precio. Sirve de histórico de compras; el valor actual en tiempo real se añadirá más adelante.
+Inversión con precio: `unidades = amount / price`; `precio medio = Σ amount / Σ unidades` de las aportaciones con precio. Sirve de histórico de compras; 
+
+Precio de mercado: con `ticker`, la app consulta Yahoo Finance (endpoint `chart`, sin clave) al abrir y al volver a primer plano (máx. 1 vez cada 10 min) y desde «Actualizar precios». Si cotiza en otra moneda convierte con el par `APPXXX=X`; GBp → GBP. Si falla conserva el último precio. Valor = `Σ(importe/precio de compra) × precio actual + inicial + aportaciones sin precio (a coste)`. Sin ticker, valoración manual como antes. Solo se envía el ticker.
 `PRAGMA foreign_keys = ON` al abrir. Borrar meta/activo/deuda borra sus aportaciones (hacerlo en la misma transacción, `target_id` no es FK polimórfica).
 
 ## Reglas de cálculo (`src/lib/calc.ts`), todo en céntimos

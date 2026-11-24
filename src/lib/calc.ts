@@ -254,3 +254,7 @@ export function avgBuyPrice(contribs: { amount: number; price: number | null }[]
   }
   return units > 0 ? Math.round(paid / units) : null;
 }
+
+/** Valor con precio de mercado: unidades (aportaciones con precio de compra) × precio actual + lo que no tiene precio, a coste. */
+export const autoValue = (i: { initial: number; unpriced: number; units: number }, quoteCents: number): number =>
+  Math.round(i.units * quoteCents) + i.initial + i.unpriced;

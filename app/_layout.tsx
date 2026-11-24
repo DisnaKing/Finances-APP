@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useColorScheme } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 import { MonthProvider } from '@/src/components/MonthContext';
+import { QuoteSync } from '@/src/components/QuoteSync';
 import { migrate } from '@/src/db/schema';
 import { darkTheme, lightTheme, navDarkTheme, navLightTheme } from '@/src/theme';
 
@@ -13,6 +14,7 @@ export default function RootLayout() {
   // SQLiteProvider va fuera para que los portales de Paper (Dialog/Menu) puedan usar useSQLiteContext.
   return (
     <SQLiteProvider databaseName="mny.db" onInit={migrate} onError={(e) => console.error('SQLite', e)}>
+      <QuoteSync />
       <MonthProvider>
         <PaperProvider theme={dark ? darkTheme : lightTheme}>
           <ThemeProvider value={dark ? navDarkTheme : navLightTheme}>

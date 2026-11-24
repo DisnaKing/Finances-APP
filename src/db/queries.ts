@@ -234,6 +234,11 @@ export type Investment = {
   value_date: string | null;
   contrib: number;
   contrib_after: number; // Σ aportaciones con date > value_date (0 si sin valorar)
+  ticker: string | null; // símbolo de mercado (p. ej. NVDA); null = valoración manual
+  quote_cents: number | null; // último precio por unidad, en la moneda de la app
+  quote_at: string | null; // ISO de la última consulta
+  units: number; // Σ importe / precio de compra de las aportaciones con precio
+  unpriced: number; // Σ importe de las aportaciones sin precio de compra
 };
 export type Contribution = {
   id: number;
@@ -279,13 +284,26 @@ export const listInvestments = (db: SQLiteDatabase) =>
   db.getAllAsync<Investment>(`SELECT *, ${contribSum('investment', 'investment')},
     (SELECT COALESCE(SUM(c.amount), 0) FROM contribution c WHERE c.kind = 'investment' AND c.target_id = investment.id
        AND investment.value_date IS NOT NULL AND c.date > investment.value_date) AS contrib_after
+    ,(SELECT COALESCE(SUM(CASE WHEN c.price > 0 THEN c.amount * 1.0 / c.price END), 0) FROM contribution c
+       WHERE c.kind = 'investment' AND c.target_id = investment.id) AS units,
+    (SELECT COALESCE(SUM(CASE WHEN c.price IS NULL OR c.price <= 0 THEN c.amount ELSE 0 END), 0) FROM contribution c
+       WHERE c.kind = 'investment' AND c.target_id = investment.id) AS unpriced
     FROM investment ORDER BY id`);
 
-export const addInvestment = (db: SQLiteDatabase, name: string, initial: number, monthly: number) =>
-  write(() => db.runAsync('INSERT INTO investment (name, initial, monthly) VALUES (?, ?, ?)', name, initial, monthly));
+export const addInvestment = (db: SQLiteDatabase, name: string, initial: number, monthly: number, ticker: string | null) =>
+  write(() => db.runAsync('INSERT INTO investment (name, initial, monthly, ticker) VALUES (?, ?, ?, ?)', name, initial, monthly, ticker));
 
-export const updateInvestment = (db: SQLiteDatabase, id: number, name: string, initial: number, monthly: number) =>
-  write(() => db.runAsync('UPDATE investment SET name = ?, initial = ?, monthly = ? WHERE id = ?', name, initial, monthly, id));
+// Si cambia el ticker se descarta el precio anterior (era de otro activo).
+export const updateInvestment = (db: SQLiteDatabase, id: number, name: string, initial: number, monthly: number, ticker: string | null) =>
+  write(() =>
+    db.runAsync(
+      'UPDATE investment SET name = ?, initial = ?, monthly = ?, quote_cents = CASE WHEN ticker IS ? THEN quote_cents END, quote_at = CASE WHEN ticker IS ? THEN quote_at END, ticker = ? WHERE id = ?',
+      name, initial, monthly, ticker, ticker, ticker, id,
+    ),
+  );
+
+export const setQuote = (db: SQLiteDatabase, id: number, cents: number, at: string) =>
+  write(() => db.runAsync('UPDATE investment SET quote_cents = ?, quote_at = ? WHERE id = ?', cents, at, id));
 
 export const deleteInvestment = (db: SQLiteDatabase, id: number) =>
   tx(db, async () => {

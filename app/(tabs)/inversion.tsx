@@ -10,7 +10,7 @@ import { DateField, validDate } from '@/src/components/DateField';
 import { useGuard } from '@/src/components/useGuard';
 import { useKeyboardHeight } from '@/src/components/useKeyboardHeight';
 import * as q from '@/src/db/queries';
-import { investmentStats, investmentTotals, investmentValue } from '@/src/lib/calc';
+import { avgBuyPrice, investmentStats, investmentTotals, investmentValue, unitsFor } from '@/src/lib/calc';
 import { centsToInput, formatMoney, formatPct, parseAmount } from '@/src/lib/money';
 import { formatDate, today } from '@/src/lib/month';
 
@@ -142,6 +142,7 @@ export default function Inversion() {
     const value = investmentValue(inv, inv.initial + inv.contrib, inv.contrib_after);
     return { inv, value, s: investmentStats({ initial: inv.initial, current_value: value }, inv.contrib) };
   });
+  const avg: Record<number, number | null> = Object.fromEntries(invs.map((inv) => [inv.id, avgBuyPrice(regs.filter((r) => r.target_id === inv.id))]));
   const tot = investmentTotals(rows.map((x) => ({ contributed: x.s.contributed, value: x.value })));
   const gainColor = (g: number) => (g >= 0 ? c.primary : c.error);
 
@@ -180,6 +181,7 @@ export default function Inversion() {
             description={() => (
               <View>
                 <Text variant="bodySmall">Aportado {m(s.contributed)}</Text>
+                {avg[inv.id] != null && <Text variant="bodySmall">Precio medio de compra {m(avg[inv.id]!)}</Text>}
                 {inv.value_date === null ? (
                   <Text variant="bodySmall">Sin valorar</Text>
                 ) : (
@@ -208,7 +210,7 @@ export default function Inversion() {
           <List.Item
             key={r.id}
             title={r.target_name ?? 'Inversión borrada'}
-            description={formatDate(r.date)}
+            description={formatDate(r.date) + (r.price != null ? ` · a ${m(r.price)}${unitsFor(r.amount, r.price) !== null ? ` · ${unitsFor(r.amount, r.price)!.toLocaleString('es-ES', { maximumFractionDigits: 6 })} uds` : ''}` : '')}
             right={() => <Text variant="bodyLarge" style={styles.amt}>{m(r.amount)}</Text>}
             onPress={() => {
               const inv = invs.find((x) => x.id === r.target_id);

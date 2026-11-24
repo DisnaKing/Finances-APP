@@ -1,8 +1,9 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 // Esquema v1 (SPEC.md) + v2 (cuenta remunerada: savings_goal.interest_rate, TAE anual en %; 0 = sin remunerar).
-// Para v3: añadir `if (v < 3) { ... }` y subir LATEST.
-const LATEST = 2;
+// v3: contribution.price = precio de compra por unidad en céntimos (NULL = sin registrar), útil en inversiones.
+// Para v4: añadir `if (v < 4) { ... }` y subir LATEST.
+const LATEST = 3;
 
 const V1 = `
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -74,6 +75,9 @@ export async function migrate(db: SQLiteDatabase): Promise<void> {
     if (v < 2) {
       await db.execAsync('ALTER TABLE savings_goal ADD COLUMN interest_rate REAL NOT NULL DEFAULT 0');
       await db.execAsync("DELETE FROM settings WHERE key LIKE 'pct\\_%' ESCAPE '\\'");
+    }
+    if (v < 3) {
+      await db.execAsync('ALTER TABLE contribution ADD COLUMN price INTEGER');
     }
     await db.execAsync(`PRAGMA user_version = ${LATEST}`);
   });

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { accruedInterest, yearlyInterest, goalStats, investmentStats, investmentTotals, investmentValue } from '../src/lib/calc.ts';
+import { accruedInterest, avgBuyPrice, unitsFor, yearlyInterest, goalStats, investmentStats, investmentTotals, investmentValue } from '../src/lib/calc.ts';
 
 test('goalStats: caso normal', () => {
   const s = goalStats({ target: 100000, min_monthly: 30000, initial: 10000 }, 20000);
@@ -134,4 +134,14 @@ test('yearlyInterest: 12 meses sin aportaciones', () => {
   assert.equal(yearlyInterest(0, 100000), 0);
   const y = yearlyInterest(12, 1000000);
   assert.ok(y > 120000 && y < 130000, String(y)); // ≈ 12,68 %
+});
+
+test('unitsFor / avgBuyPrice: unidades y precio medio ponderado', () => {
+  assert.equal(unitsFor(10000, 2500), 4);
+  assert.equal(unitsFor(10000, null), null);
+  assert.equal(unitsFor(10000, 0), null);
+  // 100 € a 25 € (4 uds) + 100 € a 50 € (2 uds) → 200 € / 6 uds = 33,33 €
+  assert.equal(avgBuyPrice([{ amount: 10000, price: 2500 }, { amount: 10000, price: 5000 }]), 3333);
+  assert.equal(avgBuyPrice([{ amount: 10000, price: null }]), null);
+  assert.equal(avgBuyPrice([]), null);
 });

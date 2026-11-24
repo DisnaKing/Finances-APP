@@ -235,3 +235,19 @@ export function grandTotal(years: Totals[]): Totals {
   const t = (k: keyof Totals) => sum(years.map((y) => y[k]));
   return { income: t('income'), spent: t('spent'), saved: t('saved'), invested: t('invested'), debtPaid: t('debtPaid'), remaining: t('remaining') };
 }
+
+/** Unidades compradas: importe / precio por unidad (ambos en céntimos). null si no hay precio. */
+export const unitsFor = (amount: number, price: number | null): number | null => (price !== null && price > 0 ? amount / price : null);
+
+/** Precio medio de compra ponderado (céntimos por unidad) de las aportaciones que tienen precio; null si ninguna. */
+export function avgBuyPrice(contribs: { amount: number; price: number | null }[]): number | null {
+  let paid = 0;
+  let units = 0;
+  for (const c of contribs) {
+    const u = unitsFor(c.amount, c.price);
+    if (u === null) continue;
+    paid += c.amount;
+    units += u;
+  }
+  return units > 0 ? Math.round(paid / units) : null;
+}

@@ -39,7 +39,7 @@ src/
 tests/                  *.test.ts + fixtures del Excel (no se suben a EAS)
 ```
 
-## Esquema SQLite (v2)
+## Esquema SQLite (v3)
 ```sql
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 -- keys: currency('€')
@@ -77,8 +77,11 @@ CREATE TABLE debt (id INTEGER PRIMARY KEY, name TEXT NOT NULL, principal INTEGER
 -- Una aportación = un movimiento. Cuenta para su mes Y para su meta/activo/deuda.
 CREATE TABLE contribution (id INTEGER PRIMARY KEY, date TEXT NOT NULL,
   kind TEXT NOT NULL CHECK (kind IN ('savings','investment','debt')),
-  target_id INTEGER NOT NULL, amount INTEGER NOT NULL);
+  target_id INTEGER NOT NULL, amount INTEGER NOT NULL,
+  price INTEGER); -- v3: precio de compra por unidad (céntimos); NULL = sin registrar. Solo inversiones.
 ```
+
+Inversión con precio: `unidades = amount / price`; `precio medio = Σ amount / Σ unidades` de las aportaciones con precio. Sirve de histórico de compras; el valor actual en tiempo real se añadirá más adelante.
 `PRAGMA foreign_keys = ON` al abrir. Borrar meta/activo/deuda borra sus aportaciones (hacerlo en la misma transacción, `target_id` no es FK polimórfica).
 
 ## Reglas de cálculo (`src/lib/calc.ts`), todo en céntimos

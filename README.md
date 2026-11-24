@@ -10,7 +10,7 @@ Los datos se guardan **solo en el móvil** (SQLite local). No hay servidor ni cu
 - **Mes**: ingresos, facturas (con ✓ de pagada) y gastos del mes. Las facturas se repiten cada mes hasta darlas de baja.
 - **Gasto**: alta rápida con calculadora (`+ − × ÷`), categoría y fecha.
 - **Ahorro**: metas con objetivo, aportación mínima mensual, progreso y meses restantes.
-- **Inversión**: activos con lo aportado, valor actual y ganancia/pérdida.
+- **Inversión**: activos con lo aportado, valor actual y ganancia/pérdida. Cada aportación puede llevar el **precio de compra** por unidad (histórico y precio medio).
 - **Deudas**: saldo, cuota, interés, tabla de amortización y fecha de fin.
 - **Totales** (pestaña con dos subpestañas): **Anual** = totales por mes del año con gráfico (tocar un mes lleva a él); **Total** = acumulado de todos los años y una fila por año.
 - **Ajustes**: moneda, categorías, facturas recurrentes (editar/reactivar).

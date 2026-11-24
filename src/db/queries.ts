@@ -234,7 +234,15 @@ export type Investment = {
   contrib: number;
   contrib_after: number; // Σ aportaciones con date > value_date (0 si sin valorar)
 };
-export type Contribution = { id: number; date: string; kind: ContribKind; target_id: number; amount: number; target_name: string | null };
+export type Contribution = {
+  id: number;
+  date: string;
+  kind: ContribKind;
+  target_id: number;
+  amount: number;
+  price: number | null; // precio de compra por unidad (céntimos); NULL = sin registrar
+  target_name: string | null;
+};
 
 const contribSum = (kind: ContribKind, table: string) =>
   `(SELECT COALESCE(SUM(amount), 0) FROM contribution WHERE kind = '${kind}' AND target_id = ${table}.id) AS contrib`;
@@ -299,11 +307,11 @@ export const listContributions = (db: SQLiteDatabase, kind: ContribKind, targetI
     ...(targetId === undefined ? [kind] : [kind, targetId]),
   );
 
-export const addContribution = (db: SQLiteDatabase, kind: ContribKind, targetId: number, date: string, amount: number) =>
-  write(() => db.runAsync('INSERT INTO contribution (date, kind, target_id, amount) VALUES (?, ?, ?, ?)', date, kind, targetId, amount));
+export const addContribution = (db: SQLiteDatabase, kind: ContribKind, targetId: number, date: string, amount: number, price: number | null = null) =>
+  write(() => db.runAsync('INSERT INTO contribution (date, kind, target_id, amount, price) VALUES (?, ?, ?, ?, ?)', date, kind, targetId, amount, price));
 
-export const updateContribution = (db: SQLiteDatabase, id: number, date: string, amount: number) =>
-  write(() => db.runAsync('UPDATE contribution SET date = ?, amount = ? WHERE id = ?', date, amount, id));
+export const updateContribution = (db: SQLiteDatabase, id: number, date: string, amount: number, price: number | null = null) =>
+  write(() => db.runAsync('UPDATE contribution SET date = ?, amount = ?, price = ? WHERE id = ?', date, amount, price, id));
 
 export const deleteContribution = (db: SQLiteDatabase, id: number) => write(() => db.runAsync('DELETE FROM contribution WHERE id = ?', id));
 

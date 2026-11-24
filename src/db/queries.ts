@@ -1,5 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { billVisible, debtActiveIn, reactivationPlan, type MonthInput } from '@/src/lib/calc';
+import { billVisible, reactivationPlan, type MonthInput } from '@/src/lib/calc';
 import { norm, validateBackup, type ImportPlan } from '@/src/lib/importXlsx';
 import { addMonths, currentMonth, monthOf, monthRange, today } from '@/src/lib/month';
 
@@ -57,7 +57,7 @@ export const incomes = (db: SQLiteDatabase, month: string) =>
   db.getAllAsync<Income>('SELECT * FROM income WHERE month = ? ORDER BY id', month);
 
 /**
- * Meses futuros: nada. Si el mes (<= actual) no tiene ingresos, copia concepto+presupuesto (importe 0) del último
+ * Meses futuros: nada. Si el mes (<= actual) no tiene ingresos, copia el concepto (importe 0) del último
  * mes anterior con ingresos; si no hay ninguno, crea Sueldo/Ingresos extra/Otros a 0. Ambas sentencias son
  * idempotentes (NOT EXISTS) y van en una transacción serializada.
  */
@@ -66,7 +66,7 @@ export async function ensureIncomes(db: SQLiteDatabase, month: string): Promise<
   await tx(db, async () => {
     await db.runAsync(
       `INSERT INTO income (month, concept, budget, amount)
-       SELECT ?, concept, budget, 0 FROM income
+       SELECT ?, concept, 0, 0 FROM income
        WHERE month = (SELECT MAX(month) FROM income WHERE month < ?)
          AND NOT EXISTS (SELECT 1 FROM income WHERE month = ?)
        ORDER BY id`,
@@ -84,11 +84,11 @@ export async function ensureIncomes(db: SQLiteDatabase, month: string): Promise<
   });
 }
 
-export const addIncome = (db: SQLiteDatabase, month: string, concept: string, budget: number, amount: number) =>
-  write(() => db.runAsync('INSERT INTO income (month, concept, budget, amount) VALUES (?, ?, ?, ?)', month, concept, budget, amount));
+export const addIncome = (db: SQLiteDatabase, month: string, concept: string, amount: number) =>
+  write(() => db.runAsync('INSERT INTO income (month, concept, budget, amount) VALUES (?, ?, 0, ?)', month, concept, amount));
 
-export const updateIncome = (db: SQLiteDatabase, id: number, concept: string, budget: number, amount: number) =>
-  write(() => db.runAsync('UPDATE income SET concept = ?, budget = ?, amount = ? WHERE id = ?', concept, budget, amount, id));
+export const updateIncome = (db: SQLiteDatabase, id: number, concept: string, amount: number) =>
+  write(() => db.runAsync('UPDATE income SET concept = ?, amount = ? WHERE id = ?', concept, amount, id));
 
 export const deleteIncome = (db: SQLiteDatabase, id: number) => write(() => db.runAsync('DELETE FROM income WHERE id = ?', id));
 
@@ -196,26 +196,19 @@ export function contributionsForMonth(db: SQLiteDatabase, month: string) {
   );
 }
 
-/** Todo lo que necesita `monthSummary` para el mes. `plan` = Σ metas/inversiones/deudas pendientes. */
+/** Todo lo que necesita `monthSummary` para el mes. */
 export async function monthInput(db: SQLiteDatabase, month: string): Promise<MonthInput> {
-  const [inc, bills, exps, contribs, plan, debt] = await Promise.all([
+  const [inc, bills, exps, contribs] = await Promise.all([
     incomes(db, month),
     listBillsForMonth(db, month),
     listExpenses(db, month),
     contributionsForMonth(db, month),
-    db.getFirstAsync<{ savings: number; investment: number }>(
-      `SELECT (SELECT COALESCE(SUM(min_monthly), 0) FROM savings_goal g
-               WHERE g.target > g.initial + (SELECT COALESCE(SUM(amount), 0) FROM contribution WHERE kind = 'savings' AND target_id = g.id)) AS savings,
-              (SELECT COALESCE(SUM(monthly), 0) FROM investment) AS investment`,
-    ),
-    debtPlan(db, month),
   ]);
   return {
     incomes: inc,
-    bills: bills.map((b) => ({ budget: b.budget, amount: b.payment_amount })),
+    bills: bills.map((b) => ({ amount: b.payment_amount })),
     expenses: exps.map((e) => ({ amount: e.amount })),
     contributions: contribs,
-    plan: { savings: plan?.savings ?? 0, investment: plan?.investment ?? 0, debt },
   };
 }
 
@@ -340,12 +333,6 @@ export async function debtPaymentsByMonth(db: SQLiteDatabase): Promise<Record<nu
   const out: Record<number, Record<string, number>> = {};
   for (const r of rows) (out[r.id] ??= {})[r.m] = r.s;
   return out;
-}
-
-/** Presupuesto de Deuda del plan: Σ pago mínimo de las deudas no liquidadas a ese mes. */
-async function debtPlan(db: SQLiteDatabase, month: string): Promise<number> {
-  const [debts, paid] = await Promise.all([listDebts(db), debtPaymentsByMonth(db)]);
-  return debts.reduce((a, d) => a + (debtActiveIn(d, paid[d.id] ?? {}, month) ? d.min_payment : 0), 0);
 }
 
 // --- Anual ---

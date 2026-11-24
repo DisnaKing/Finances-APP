@@ -36,19 +36,17 @@ type Dlg =
 function IncomeDialog({ inc, month, onClose }: { inc: Income | null; month: string; onClose: (changed: boolean) => void }) {
   const db = useSQLiteContext();
   const [concept, setConcept] = useState(inc?.concept ?? '');
-  const [budget, setBudget] = useState(inc ? centsToInput(inc.budget) : '');
   const [amount, setAmount] = useState(inc ? centsToInput(inc.amount) : '');
-  const b = parse(budget);
   const a = parse(amount);
   const [busy, run] = useGuard();
   const kb = useKeyboardHeight();
-  const ok = concept.trim() !== '' && b !== null && a !== null && !busy;
+  const ok = concept.trim() !== '' && a !== null && !busy;
   // keepLocked: el diálogo se cierra (desmonta) al terminar bien.
   const save = () => {
     if (!ok) return;
     return run(async () => {
-      if (inc) await q.updateIncome(db, inc.id, concept.trim(), b, a);
-      else await q.addIncome(db, month, concept.trim(), b, a);
+      if (inc) await q.updateIncome(db, inc.id, concept.trim(), a);
+      else await q.addIncome(db, month, concept.trim(), a);
       onClose(true);
     }, true);
   };
@@ -62,7 +60,6 @@ function IncomeDialog({ inc, month, onClose }: { inc: Income | null; month: stri
       <Dialog.Title>{inc ? 'Editar ingreso' : 'Añadir ingreso'}</Dialog.Title>
       <Dialog.Content>
         <TextInput mode="outlined" dense label="Concepto" value={concept} onChangeText={setConcept} />
-        <AmountField label="Presupuesto" value={budget} onChange={setBudget} />
         <AmountField label="Importe" value={amount} onChange={setAmount} />
       </Dialog.Content>
       <Dialog.Actions>
@@ -116,7 +113,7 @@ function BillDialog(p: {
         <ScrollView contentContainerStyle={styles.dlgBody}>
           {bill && <AmountField label="Importe de este mes" value={amount} onChange={setAmount} />}
           <TextInput mode="outlined" dense label="Concepto" value={concept} onChangeText={setConcept} />
-          <AmountField label="Presupuesto" value={budget} onChange={setBudget} />
+          <AmountField label="Importe mensual" value={budget} onChange={setBudget} />
           {bill && (
             <>
               <HelperText type="info">Los cambios se aplican a todos los meses.</HelperText>
@@ -193,7 +190,6 @@ export default function Mes() {
           <List.Item
             key={i.id}
             title={i.concept}
-            description={`previsto ${m(i.budget)}`}
             right={() => <Text variant="bodyLarge" style={styles.amt}>{m(i.amount)}</Text>}
             onPress={() => setDlg({ t: 'income', inc: i })}
           />
@@ -203,7 +199,7 @@ export default function Mes() {
         <View style={[styles.between, styles.title]}>
           <Text variant="titleMedium">Facturas</Text>
           <Text variant="bodyMedium">
-            {m(sum(bills.map((b) => b.payment_amount ?? 0)))} / {m(sum(bills.map((b) => b.budget)))}
+            {m(sum(bills.map((b) => b.payment_amount ?? 0)))}
           </Text>
         </View>
         {bills.map((b) => (

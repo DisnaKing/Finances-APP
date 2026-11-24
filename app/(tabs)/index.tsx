@@ -12,11 +12,11 @@ import { formatMoney } from '@/src/lib/money';
 type Summary = ReturnType<typeof monthSummary>;
 
 const ROWS = [
-  { key: 'bills', label: 'Facturas' },
-  { key: 'expenses', label: 'Gastos' },
-  { key: 'savings', label: 'Ahorros' },
-  { key: 'investment', label: 'Inversión' },
-  { key: 'debt', label: 'Deuda' },
+  { key: 'billsSpent', label: 'Facturas' },
+  { key: 'expensesSpent', label: 'Gastos' },
+  { key: 'saved', label: 'Ahorros' },
+  { key: 'invested', label: 'Inversión' },
+  { key: 'debtPaid', label: 'Deuda' },
 ] as const;
 
 export default function Inicio() {
@@ -61,7 +61,6 @@ export default function Inicio() {
                 <Card.Content>
                   <Text variant="labelMedium">Ingresos</Text>
                   <Text variant="titleLarge">{m(s.income)}</Text>
-                  <Text variant="bodySmall">de {m(s.incomeBudget)} previsto</Text>
                 </Card.Content>
               </Card>
               <Card style={[styles.card, { backgroundColor: c.secondaryContainer }]}>
@@ -86,19 +85,13 @@ export default function Inicio() {
               </Card>
             </View>
 
-            <Text variant="titleMedium" style={styles.title}>Presupuesto vs real</Text>
-            {ROWS.map(({ key, label }) => {
-              const { budget, actual } = s.rows[key];
-              const diff = budget - actual;
-              return (
-                <View key={key} style={[styles.between, styles.row]}>
-                  <Text variant="bodyLarge" style={styles.flex}>{label}</Text>
-                  <Text variant="bodySmall" style={styles.num}>prev. {m(budget)}</Text>
-                  <Text variant="bodySmall" style={styles.num}>real {m(actual)}</Text>
-                  <Text variant="bodyMedium" style={[styles.num, diff < 0 && { color: c.error }]}>{m(diff)}</Text>
-                </View>
-              );
-            })}
+            <Text variant="titleMedium" style={styles.title}>Desglose del mes</Text>
+            {ROWS.map(({ key, label }) => (
+              <View key={key} style={[styles.between, styles.row]}>
+                <Text variant="bodyLarge" style={styles.flex}>{label}</Text>
+                <Text variant="bodyLarge">{m(s[key])}</Text>
+              </View>
+            ))}
           </>
         )}
       </ScrollView>
@@ -115,6 +108,5 @@ const styles = StyleSheet.create({
   title: { marginTop: 24, marginBottom: 8 },
   between: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   row: { paddingVertical: 6, gap: 8 },
-  num: { minWidth: 72, textAlign: 'right' },
   fab: { position: 'absolute', right: 16, bottom: 16 },
 });

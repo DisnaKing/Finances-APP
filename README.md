@@ -6,7 +6,7 @@ Los datos se guardan **solo en el móvil** (SQLite local). No hay servidor ni cu
 
 ## Qué hace
 
-- **Inicio**: resumen del mes (ingresos, gastado, ahorrado + invertido, restante), y presupuesto frente a real.
+- **Inicio**: resumen del mes (ingresos, gastado, ahorrado + invertido, restante) y desglose del mes. Sin presupuestos.
 - **Mes**: ingresos, facturas (con ✓ de pagada) y gastos del mes. Las facturas se repiten cada mes hasta darlas de baja.
 - **Gasto**: alta rápida con calculadora (`+ − × ÷`), categoría y fecha.
 - **Ahorro**: metas con objetivo, aportación mínima mensual, progreso y meses restantes.

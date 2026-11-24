@@ -1,21 +1,16 @@
 // Cálculos puros en céntimos (SPEC "Reglas de cálculo"). Sin imports: corre bajo `node --test`.
 
-type BA = { budget: number; actual: number };
-
 export type MonthInput = {
-  incomes: { budget: number; amount: number }[];
-  bills: { budget: number; amount: number | null }[];
+  incomes: { amount: number }[];
+  bills: { amount: number | null }[];
   expenses: { amount: number }[];
   contributions: { kind: 'savings' | 'investment' | 'debt'; amount: number }[];
-  plan?: { savings: number; investment: number; debt: number };
 };
 
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 
 export function monthSummary(d: MonthInput) {
   const income = sum(d.incomes.map((i) => i.amount));
-  const incomeBudget = sum(d.incomes.map((i) => i.budget));
-  const billsBudget = sum(d.bills.map((b) => b.budget));
   const billsSpent = sum(d.bills.map((b) => b.amount ?? 0));
   const expensesSpent = sum(d.expenses.map((e) => e.amount));
   const byKind = (k: string) => sum(d.contributions.filter((c) => c.kind === k).map((c) => c.amount));
@@ -25,17 +20,7 @@ export function monthSummary(d: MonthInput) {
   const spent = billsSpent + expensesSpent;
   const remaining = income - spent - saved - invested - debtPaid;
 
-  const plan = d.plan ?? { savings: 0, investment: 0, debt: 0 };
-  // Gastos variables presupuestados = lo que queda del ingreso previsto tras facturas y plan de ahorro/inversión/deuda.
-  const rows: Record<'bills' | 'expenses' | 'savings' | 'investment' | 'debt', BA> = {
-    bills: { budget: billsBudget, actual: billsSpent },
-    expenses: { budget: Math.max(incomeBudget - billsBudget - plan.savings - plan.investment - plan.debt, 0), actual: expensesSpent },
-    savings: { budget: plan.savings, actual: saved },
-    investment: { budget: plan.investment, actual: invested },
-    debt: { budget: plan.debt, actual: debtPaid },
-  };
-
-  return { income, incomeBudget, billsBudget, billsSpent, expensesSpent, spent, saved, invested, debtPaid, remaining, rows };
+  return { income, billsSpent, expensesSpent, spent, saved, invested, debtPaid, remaining };
 }
 
 /** Factura visible en el mes: dentro de [start, end] o con pago ese mes. */

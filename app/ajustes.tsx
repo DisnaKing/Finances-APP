@@ -121,7 +121,7 @@ function BillDialog(p: { bill: Bill; onClose: (changed: boolean) => void }) {
       <Dialog.ScrollArea>
         <ScrollView keyboardShouldPersistTaps="handled">
           <TextInput mode="outlined" dense label="Concepto" value={concept} onChangeText={setConcept} />
-          <AmountField label="Presupuesto" value={budget} onChange={setBudget} error={errB} />
+          <AmountField label="Importe mensual" value={budget} onChange={setBudget} error={errB} />
           <HelperText type="info">Los cambios se aplican a todos los meses.</HelperText>
         </ScrollView>
       </Dialog.ScrollArea>

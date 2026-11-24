@@ -8,8 +8,8 @@ const base: MonthInput = { incomes: [], bills: [], expenses: [], contributions: 
 test('totales y restante', () => {
   const s = monthSummary({
     ...base,
-    incomes: [{ budget: 150000, amount: 100000 }, { budget: 0, amount: 5000 }],
-    bills: [{ budget: 30000, amount: 31000 }, { budget: 2000, amount: null }],
+    incomes: [{ amount: 100000 }, { amount: 5000 }],
+    bills: [{ amount: 31000 }, { amount: null }],
     expenses: [{ amount: 4000 }, { amount: 1000 }],
     contributions: [
       { kind: 'savings', amount: 1000 },
@@ -19,8 +19,6 @@ test('totales y restante', () => {
     ],
   });
   assert.equal(s.income, 105000);
-  assert.equal(s.incomeBudget, 150000);
-  assert.equal(s.billsBudget, 32000);
   assert.equal(s.billsSpent, 31000); // sin pago = 0
   assert.equal(s.expensesSpent, 5000);
   assert.equal(s.spent, 36000); // sin inversión
@@ -30,31 +28,19 @@ test('totales y restante', () => {
   assert.equal(s.remaining, 105000 - 36000 - 1100 - 2000 - 500);
 });
 
-test('filas presupuesto vs actual', () => {
+test('desglose del mes: facturas, gastos, ahorro, inversión y deuda reales', () => {
   const s = monthSummary({
     ...base,
-    incomes: [{ budget: 100000, amount: 100000 }],
-    bills: [
-      { budget: 20000, amount: 21000 },
-      { budget: 10000, amount: null },
-    ],
+    incomes: [{ amount: 100000 }],
+    bills: [{ amount: 21000 }, { amount: null }],
     expenses: [{ amount: 700 }],
     contributions: [{ kind: 'savings', amount: 50 }, { kind: 'investment', amount: 60 }, { kind: 'debt', amount: 70 }],
-    plan: { savings: 1, investment: 2, debt: 3 },
   });
-  assert.deepEqual(s.rows, {
-    bills: { budget: 30000, actual: 21000 },
-    expenses: { budget: 100000 - 30000 - 1 - 2 - 3, actual: 700 },
-    savings: { budget: 1, actual: 50 },
-    investment: { budget: 2, actual: 60 },
-    debt: { budget: 3, actual: 70 },
-  });
-});
-
-test('presupuesto de gastos nunca negativo; plan por defecto 0', () => {
-  const s = monthSummary({ ...base, incomes: [{ budget: 0, amount: 1000 }], bills: [{ budget: 99999, amount: 0 }] });
-  assert.equal(s.rows.expenses.budget, 0);
-  assert.deepEqual([s.rows.savings.budget, s.rows.investment.budget, s.rows.debt.budget], [0, 0, 0]);
+  assert.deepEqual(
+    [s.billsSpent, s.expensesSpent, s.saved, s.invested, s.debtPaid],
+    [21000, 700, 50, 60, 70],
+  );
+  assert.equal(s.remaining, 100000 - 21000 - 700 - 50 - 60 - 70);
 });
 
 test('billVisible', () => {
@@ -78,7 +64,7 @@ test('fixture Excel: resumen de cada mes', { skip: !existsSync(FIXTURE) }, () =>
     const x = data.months[m];
     const s = monthSummary({
       incomes: x.income,
-      bills: x.bills.map((b: any) => ({ budget: b.budget ?? 0, amount: b.amount })),
+      bills: x.bills.map((b: any) => ({ amount: b.amount })),
       expenses: x.expenses.map((e: any) => ({ amount: e.amount })),
       contributions: [
         { kind: 'savings', amount: x.sheet_saved ?? 0 },

@@ -9,7 +9,7 @@ test('yearSummary: 12 filas numeradas y total = suma de columnas', () => {
   const months = Array.from({ length: 12 }, (_, i) =>
     monthSummary({
       ...empty,
-      incomes: [{ budget: 0, amount: 1000 * (i + 1) }],
+      incomes: [{ amount: 1000 * (i + 1) }],
       expenses: [{ amount: 100 * (i + 1) }],
       contributions: [
         { kind: 'savings', amount: 10 },
@@ -49,7 +49,7 @@ test('fixture Excel: el total anual es la suma de los meses esperados', { skip: 
     ms.map((x: any) =>
       monthSummary({
         incomes: x.income,
-        bills: x.bills.map((b: any) => ({ budget: b.budget ?? 0, amount: b.amount })),
+        bills: x.bills.map((b: any) => ({ amount: b.amount })),
         expenses: x.expenses.map((e: any) => ({ amount: e.amount })),
         contributions: [
           { kind: 'savings', amount: x.sheet_saved ?? 0 },

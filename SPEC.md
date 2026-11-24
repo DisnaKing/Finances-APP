@@ -83,13 +83,13 @@ CREATE TABLE contribution (id INTEGER PRIMARY KEY, date TEXT NOT NULL,
 
 ## Reglas de cálculo (`src/lib/calc.ts`), todo en céntimos
 Mes M:
-- `income = Σ income.amount` del mes. `incomeBudget = Σ income.budget`.
+- `income = Σ income.amount` del mes.
 - `billsSpent = Σ bill_payment.amount` del mes (pagada o no: lo que hay apuntado es lo real, igual que la columna "Actual" del Excel).
 - `expensesSpent = Σ expense.amount` con `date` en M.
 - `spent = billsSpent + expensesSpent` (el Excel mensual hace esto; **no** incluir inversión — el ANUAL del Excel lo hacía mal).
 - `saved / invested / debtPaid = Σ contribution.amount` del mes por `kind`.
 - `remaining = income − spent − saved − invested − debtPaid` (= celda G21 del Excel).
-- Presupuesto vs real por fila: Facturas (Σ presupuesto de facturas), Ahorros/Inversión/Deuda (plan opcional, 0 por defecto) y Gastos = max(ingreso previsto − facturas − ahorro − inversión − deuda, 0). No hay reparto 50/30/20.
+- Sin presupuestos: Inicio muestra el desglose real del mes (facturas, gastos, ahorros, inversión, deuda). `income.budget` se conserva en BD pero ya no se usa; `bill.budget` es el **importe mensual** de la factura recurrente.
 - Facturas visibles en M: `start_month ≤ M` y (`end_month` NULL o `end_month ≥ M`), más cualquiera con pago en M.
 
 Ahorro (meta g): `total = initial + Σ contribs(g)`; `left = max(target − total, 0)`; `progress = target>0 ? min(total/target,1) : 0`; `monthsLeft = min_monthly>0 && left>0 ? ceil(left/min_monthly) : null`.
@@ -106,7 +106,7 @@ Deuda (d), `r = annual_rate/100/12`, `cur` = mes en curso, `start` = mes de `sta
 - `monthsLeft = nper(r, min_payment, base saldo)` con saldo base = `principal` si `cur < start`; `currentBalance` si hay pago real este mes (se cuenta desde el mes siguiente); saldo de fin del mes anterior en otro caso (se cuenta desde este mes). `freeMonth = addM(base, monthsLeft−1)` con base = `start` si `start > cur`; `cur` si no hay pago real este mes; `cur+1` si lo hay. `monthsLeft` 0 o `null` → `freeMonth null`.
 - `paidPct = min(Σ contribs(d) / principal, 1)`.
 - Resumen: deuda total, pago mínimo total (solo abiertas), fecha libre = máx(`freeMonth`) entre deudas (`null` si alguna abierta nunca se paga). Orden bola de nieve = `currentBalance` ascendente (las liquidadas, al final).
-- Presupuesto de Deuda del plan del mes M = Σ `min_payment` de las deudas con fila en el calendario para M (`debtSchedule(d, pagos, M)` tiene una fila de M): el mes del último pago sí presupuesta; antes del inicio y tras liquidarla no.
+- `debtActiveIn(d, pagos, M)`: la deuda tiene fila en el calendario para M (el mes del último pago sí cuenta; antes del inicio y tras liquidarla no).
 - Pagos: la fecha no puede ser anterior a `start_date`. «Pagar» propone `min(min_payment, currentBalance)` y se oculta si `currentBalance == 0`. Interés anual válido: 0 a 100.
 - `monthsLeft` usa NPER (paridad con el Excel); puede diferir en ±1 mes de la longitud del calendario por el redondeo mensual de intereses.
 
@@ -121,6 +121,6 @@ Total (toda la vida de la app): una fila por año con movimientos (`yearSummary(
 ## UX
 - Español. Botón "+" (FAB) en todas las pestañas → modal de gasto: importe (teclado numérico + expresión, muestra el resultado), categoría (chips), concepto, fecha (hoy por defecto). Guardar en ≤3 toques.
 - Selector de mes compartido (contexto o parámetro) en Inicio y Mes; por defecto el mes actual.
-- Mes: secciones Ingresos (editar importes/presupuesto, añadir concepto; si el mes no tiene ingresos, crear Sueldo/Ingresos extra/Otros con el presupuesto copiado del mes anterior), Facturas (check = pagada; al marcar sin pago crea uno con importe = presupuesto), Gastos (lista por fecha desc, tocar para editar, borrar con confirmación).
+- Mes: secciones Ingresos (editar importes, añadir concepto; si el mes no tiene ingresos, copiar los conceptos del mes anterior con importe 0 o crear Sueldo/Ingresos extra/Otros), Facturas (check = pagada; al marcar sin pago crea uno con el importe mensual de la factura), Gastos (lista por fecha desc, tocar para editar, borrar con confirmación).
 - Estados vacíos con una línea y una acción. Errores de validación junto al campo.
 - Tema claro/oscuro según el sistema.

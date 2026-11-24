@@ -59,28 +59,32 @@ export function goalStats(g: { target: number; min_monthly: number; initial: num
 }
 
 /**
- * Cuenta remunerada: interés compuesto mensual (r = TAE/100/12) sobre el saldo, desde `startMonth` hasta `untilMonth` (incluido).
- * Saldo inicial = `initial` + aportaciones de meses anteriores a startMonth; cada mes: interés = round(saldo·r) sobre el saldo
- * de inicio de mes, y las aportaciones del mes se suman al final. `contribByMonth`: 'YYYY-MM' → céntimos (puede ser negativo).
+ * Cuenta remunerada. Cada mes se aplica TAE/12 sobre el saldo de ESE mes (no sobre el total ni anual de golpe):
+ * interés del mes = round(TAE/100/12 · saldo medio del mes), donde el saldo medio pondera cada aportación por los días
+ * que lleva en la cuenta (una aportación el día d cuenta desde ese día). El interés se abona el ÚLTIMO día del mes:
+ * solo se cuenta si ese día ya ha llegado (≤ `untilDate`) y entra en el saldo del mes siguiente (compuesto).
+ * Empieza en el mes de la primera aportación, con `initial` ya en la cuenta. `untilDate`: 'YYYY-MM-DD' (hoy).
  */
-export function accruedInterest(
-  rate: number,
-  initial: number,
-  contribByMonth: Record<string, number>,
-  startMonth: string,
-  untilMonth: string,
-): number {
+export type DatedAmount = { date: string; amount: number };
+export function accruedInterest(rate: number, initial: number, contribs: DatedAmount[], untilDate: string): number {
+  if (!(rate > 0) || contribs.length === 0) return 0;
+  const cs = [...contribs].sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
   const r = rate / 100 / 12;
   let balance = initial;
-  for (const [m, v] of Object.entries(contribByMonth)) if (m < startMonth) balance += v;
   let interest = 0;
-  for (let m = startMonth; m <= untilMonth; m = addM(m, 1)) {
-    if (r > 0 && balance > 0) {
-      const i = Math.round(balance * r);
-      interest += i;
-      balance += i;
+  let i = 0;
+  for (let m = cs[0].date.slice(0, 7); ; m = addM(m, 1)) {
+    const days = new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0)).getUTCDate();
+    if (`${m}-${String(days).padStart(2, '0')}` > untilDate) break; // el abono del último día aún no ha llegado
+    let bal = balance;
+    let sum = 0;
+    for (let d = 1; d <= days; d++) {
+      while (i < cs.length && cs[i].date.slice(0, 7) === m && Number(cs[i].date.slice(8, 10)) <= d) bal += cs[i++].amount;
+      sum += bal;
     }
-    balance += contribByMonth[m] ?? 0;
+    const x = sum > 0 ? Math.round((r * sum) / days) : 0;
+    interest += x;
+    balance = bal + x;
   }
   return interest;
 }

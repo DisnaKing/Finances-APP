@@ -11,7 +11,7 @@ import { useKeyboardHeight } from '@/src/components/useKeyboardHeight';
 import * as q from '@/src/db/queries';
 import { accruedInterest, goalStats, yearlyInterest } from '@/src/lib/calc';
 import { centsToInput, formatMoney, formatPct, parseAmount } from '@/src/lib/money';
-import { currentMonth, formatDate } from '@/src/lib/month';
+import { formatDate, today } from '@/src/lib/month';
 
 const parse = (t: string) => (t.trim() === '' ? 0 : parseAmount(t)); // vacío = 0
 
@@ -113,14 +113,12 @@ export default function Ahorro() {
     const n = ++seq.current;
     try {
       const [g, r, st] = await Promise.all([q.listGoals(db), q.listContributions(db, 'savings'), q.getSettings(db)]);
-      // Interés devengado desde la primera aportación hasta el mes actual (informativo; no cuenta en el saldo).
+      // Interés abonado (el último día de cada mes ya transcurrido; informativo, no cuenta en el saldo).
       const acc: Record<number, number> = {};
-      const now = currentMonth();
+      const now = today();
       for (const x of g) {
         if (x.interest_rate <= 0) continue;
-        const byMonth = await q.goalContribByMonth(db, x.id);
-        const first = Object.keys(byMonth).sort()[0];
-        acc[x.id] = first && first <= now ? accruedInterest(x.interest_rate, x.initial, byMonth, first, now) : 0;
+        acc[x.id] = accruedInterest(x.interest_rate, x.initial, await q.goalContribs(db, x.id), now);
       }
       if (n !== seq.current) return; // llegó otra carga más reciente
       setAccrued(acc);
@@ -178,7 +176,7 @@ export default function Ahorro() {
                 </Text>
                 {g.interest_rate > 0 && (
                   <Text variant="bodySmall">
-                    Remunerada {formatPct(g.interest_rate / 100, false)} · devengado {m(accrued[g.id] ?? 0)} · ≈ {m(yearlyInterest(g.interest_rate, s.total))}/año
+                    Remunerada {formatPct(g.interest_rate / 100, false)} · abonado {m(accrued[g.id] ?? 0)} · ≈ {m(yearlyInterest(g.interest_rate, s.total + (accrued[g.id] ?? 0)))}/año
                   </Text>
                 )}
               </View>

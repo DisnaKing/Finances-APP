@@ -260,13 +260,11 @@ export const updateGoal = (db: SQLiteDatabase, id: number, name: string, target:
   );
 
 /** Aportaciones de una meta agrupadas por mes ('YYYY-MM' → céntimos), para calcular intereses. */
-export const goalContribByMonth = async (db: SQLiteDatabase, id: number) => {
-  const rows = await db.getAllAsync<{ m: string; s: number }>(
-    "SELECT substr(date, 1, 7) AS m, SUM(amount) AS s FROM contribution WHERE kind = 'savings' AND target_id = ? GROUP BY m",
+export const goalContribs = (db: SQLiteDatabase, id: number) =>
+  db.getAllAsync<{ date: string; amount: number }>(
+    "SELECT date, amount FROM contribution WHERE kind = 'savings' AND target_id = ?",
     id,
   );
-  return Object.fromEntries(rows.map((r) => [r.m, r.s])) as Record<string, number>;
-};
 
 // contribution.target_id no es FK (polimórfico): la cascada es manual y en la misma transacción.
 export const deleteGoal = (db: SQLiteDatabase, id: number) =>

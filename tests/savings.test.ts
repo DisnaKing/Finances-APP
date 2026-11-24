@@ -103,18 +103,31 @@ test('investmentValue: aportación el mismo día ya está en el valor', () => {
   assert.equal(investmentValue({ current_value: 3000, value_date: '2026-05-10' }, 2500, 0), 3000);
 });
 
-test('accruedInterest: tasa 0 o sin saldo -> 0', () => {
-  assert.equal(accruedInterest(0, 100000, {}, '2026-01', '2026-12'), 0);
-  assert.equal(accruedInterest(3, 0, {}, '2026-01', '2026-12'), 0);
+const c = (date: string, amount: number) => ({ date, amount });
+
+test('accruedInterest: tasa 0 o sin aportaciones -> 0', () => {
+  assert.equal(accruedInterest(0, 100000, [c('2026-01-01', 100)], '2026-12-31'), 0);
+  assert.equal(accruedInterest(3, 100000, [], '2026-12-31'), 0);
 });
 
-test('accruedInterest: interés mensual compuesto sobre saldo inicial', () => {
-  // 12000,00 € al 12 % anual = 1 % mensual; 2 meses: 120 + 121,20 = 241,20
-  assert.equal(accruedInterest(12, 1200000, {}, '2026-01', '2026-02'), 24120);
+test('accruedInterest: TAE/12 cada mes sobre el saldo de ese mes, compuesto', () => {
+  // 12 % anual = 1 % mensual; 12000,00 € presentes desde el día 1: enero 120,00 y febrero 121,20
+  assert.equal(accruedInterest(12, 0, [c('2026-01-01', 1200000)], '2026-02-28'), 24120);
 });
 
-test('accruedInterest: las aportaciones previas al inicio cuentan como saldo', () => {
-  assert.equal(accruedInterest(12, 0, { '2025-12': 1200000 }, '2026-01', '2026-01'), 12000);
+test('accruedInterest: el interés se abona el último día del mes', () => {
+  const cs = [c('2026-01-01', 1200000)];
+  assert.equal(accruedInterest(12, 0, cs, '2026-01-30'), 0); // aún no ha llegado el 31
+  assert.equal(accruedInterest(12, 0, cs, '2026-01-31'), 12000);
+});
+
+test('accruedInterest: una aportación a mitad de mes solo rinde los días que lleva', () => {
+  // febrero 2026 = 28 días; aportación el día 15 → 14 de 28 días = mitad del mes → 0,5 %
+  assert.equal(accruedInterest(12, 0, [c('2026-02-15', 1200000)], '2026-02-28'), 6000);
+});
+
+test('accruedInterest: el saldo inicial cuenta desde el mes de la primera aportación', () => {
+  assert.equal(accruedInterest(12, 1000000, [c('2026-01-01', 200000)], '2026-01-31'), 12000);
 });
 
 test('yearlyInterest: 12 meses sin aportaciones', () => {

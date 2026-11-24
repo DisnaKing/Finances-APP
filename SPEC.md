@@ -93,7 +93,7 @@ Mes M:
 
 Ahorro (meta g): `total = initial + Σ contribs(g)`; `left = max(target − total, 0)`; `progress = target>0 ? min(total/target,1) : 0`; `monthsLeft = min_monthly>0 && left>0 ? ceil(left/min_monthly) : null`.
 
-Cuenta remunerada (meta con `interest_rate > 0`): interés **informativo**, no modifica `total`. `accruedInterest`: capitalización mensual, r = TAE/100/12, interés redondeado cada mes, aportaciones tras aplicar el interés del mes. `yearlyInterest(rate, saldo)`: 12 meses sin aportaciones.
+Cuenta remunerada (meta con `interest_rate > 0`): interés **informativo**, no modifica `total`. `accruedInterest`: cada mes se aplica TAE/12 sobre el saldo de ese mes (media ponderada por los días que cada aportación lleva en la cuenta), redondeado; se abona el último día del mes (solo cuenta si ya ha llegado) y entra en el saldo del mes siguiente. `yearlyInterest(rate, saldo)`: 12 meses sin aportaciones.
 
 Inversión (activo a): `contributed = initial + Σ contribs(a)`; valor mostrado `value = value_date null ? contributed : current_value + Σ contribs(a con date > value_date)` (las aportaciones del mismo día ya están en el valor); `gain = value − contributed`; `gainPct = contributed>0 ? gain/contributed : 0`. Sin `value_date` se muestra «Sin valorar» en lugar del rendimiento. Totales = suma.
 

@@ -42,7 +42,8 @@ export function TotalView() {
 
   const m = (x: number) => formatMoney(x, cur);
   const total = grandTotal((years ?? []).map((y) => y.t));
-  const cell = (i: number, bold = false, color?: string) => [
+  // El color va siempre explícito: `color: undefined` pisaría el del tema y el texto no cambiaría con él.
+  const cell = (i: number, bold = false, color: string = c.onSurface) => [
     { width: COL_W, textAlign: i === 0 ? ('left' as const) : ('right' as const), color },
     bold && styles.bold,
   ];

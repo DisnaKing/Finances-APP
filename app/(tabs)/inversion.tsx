@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Button, Card, Dialog, FAB, HelperText, List, Portal, Text, TextInput, useTheme } from 'react-native-paper';
+import { Button, Dialog, HelperText, List, Portal, Text, TextInput } from 'react-native-paper';
 import { router, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { AmountField } from '@/src/components/AmountField';
 import { ConfirmDialog } from '@/src/components/ConfirmDialog';
 import { ContribDialog } from '@/src/components/ContribDialog';
 import { DateField, validDate } from '@/src/components/DateField';
+import { AddExpenseFab, HeroCard, HeroStat } from '@/src/components/ui';
 import { useGuard } from '@/src/components/useGuard';
 import { useKeyboardHeight } from '@/src/components/useKeyboardHeight';
 import * as q from '@/src/db/queries';
@@ -14,6 +15,7 @@ import { onQuotesUpdated, refreshQuotes } from '@/src/db/quotesSync';
 import { autoValue, avgBuyPrice, investmentStats, investmentTotals, investmentValue, unitsFor } from '@/src/lib/calc';
 import { centsToInput, formatMoney, formatPct, parseAmount } from '@/src/lib/money';
 import { formatDate, today } from '@/src/lib/month';
+import { useAppTheme } from '@/src/theme';
 
 const parse = (t: string) => (t.trim() === '' ? 0 : parseAmount(t)); // vacío = 0
 
@@ -117,7 +119,7 @@ function ValueDialog(p: { inv: q.Investment; value: number; onClose: (changed: b
 
 export default function Inversion() {
   const db = useSQLiteContext();
-  const c = useTheme().colors;
+  const c = useAppTheme().colors;
   const [cur, setCur] = useState('€');
   const [invs, setInvs] = useState<q.Investment[]>([]);
   const [regs, setRegs] = useState<q.Contribution[]>([]);
@@ -165,23 +167,15 @@ export default function Inversion() {
   return (
     <View style={[styles.flex, { backgroundColor: c.background }]}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Card style={{ backgroundColor: c.primaryContainer }}>
-          <Card.Content>
-            <View style={styles.between}>
-              <View>
-                <Text variant="labelMedium">Aportado</Text>
-                <Text variant="titleLarge">{m(tot.contributed)}</Text>
-              </View>
-              <View style={styles.end}>
-                <Text variant="labelMedium">Valor actual</Text>
-                <Text variant="titleLarge">{m(tot.value)}</Text>
-              </View>
-            </View>
-            <Text variant="titleMedium" style={[styles.gap, { color: gainColor(tot.gain) }]}>
-              Rendimiento {m(tot.gain)} ({formatPct(tot.gainPct)})
-            </Text>
-          </Card.Content>
-        </Card>
+        <HeroCard>
+          <View style={styles.between}>
+            <HeroStat label="Aportado" value={m(tot.contributed)} />
+            <HeroStat label="Valor actual" value={m(tot.value)} end />
+          </View>
+          <Text variant="titleMedium" style={[styles.gap, { color: tot.gain >= 0 ? c.heroAccent : c.heroError }]}>
+            Rendimiento {m(tot.gain)} ({formatPct(tot.gainPct)})
+          </Text>
+        </HeroCard>
 
         <Text variant="titleMedium" style={styles.title}>Activos</Text>
         {invs.some((x) => x.ticker) && (
@@ -266,7 +260,7 @@ export default function Inversion() {
           />
         )}
       </Portal>
-      <FAB icon="plus" accessibilityLabel="Añadir gasto" style={styles.fab} onPress={() => router.navigate('/gasto')} />
+      <AddExpenseFab />
     </View>
   );
 }
@@ -276,10 +270,8 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 96 },
   title: { marginTop: 24 },
   gap: { marginTop: 8 },
-  between: { flexDirection: 'row', justifyContent: 'space-between' },
-  end: { alignItems: 'flex-end' },
+  between: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
   empty: { alignItems: 'center', paddingVertical: 8 },
   actions: { flexDirection: 'row', marginLeft: -8 },
   amt: { alignSelf: 'center' },
-  fab: { position: 'absolute', right: 16, bottom: 16 },
 });

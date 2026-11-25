@@ -1,11 +1,13 @@
 import { useCallback, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Card, Text, useTheme } from 'react-native-paper';
+import { Card, Text } from 'react-native-paper';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
+import { FitText, HeroCard } from '@/src/components/ui';
 import * as q from '@/src/db/queries';
 import { grandTotal, monthSummary, yearSummary, type Totals } from '@/src/lib/calc';
 import { formatMoney } from '@/src/lib/money';
+import { useAppTheme } from '@/src/theme';
 
 const COL_W = 92;
 const HEAD = ['Año', 'Ingresos', 'Gastado', 'Ahorro+Inv.', 'Deuda', 'Restante'];
@@ -13,7 +15,7 @@ const HEAD = ['Año', 'Ingresos', 'Gastado', 'Ahorro+Inv.', 'Deuda', 'Restante']
 /** Totales de toda la vida de la app: tarjetas con el acumulado y una fila por año. */
 export function TotalView() {
   const db = useSQLiteContext();
-  const c = useTheme().colors;
+  const c = useAppTheme().colors;
   const [cur, setCur] = useState('€');
   const [years, setYears] = useState<{ year: number; t: Totals }[] | null>(null);
   const seq = useRef(0);
@@ -53,13 +55,12 @@ export function TotalView() {
       <Text variant="bodySmall" style={cell(5, bold, t.remaining < 0 ? c.error : undefined)}>{m(t.remaining)}</Text>
     </>
   );
-  const cards: { label: string; value: number; bg: string; neg?: boolean }[] = [
-    { label: 'Ingresos', value: total.income, bg: c.surfaceVariant },
-    { label: 'Gastado', value: total.spent, bg: c.secondaryContainer },
-    { label: 'Ahorrado', value: total.saved, bg: c.secondaryContainer },
-    { label: 'Invertido', value: total.invested, bg: c.secondaryContainer },
-    { label: 'Deuda pagada', value: total.debtPaid, bg: c.secondaryContainer },
-    { label: 'Restante', value: total.remaining, bg: c.primaryContainer, neg: true },
+  const cards: { label: string; value: number }[] = [
+    { label: 'Ingresos', value: total.income },
+    { label: 'Gastado', value: total.spent },
+    { label: 'Ahorrado', value: total.saved },
+    { label: 'Invertido', value: total.invested },
+    { label: 'Deuda pagada', value: total.debtPaid },
   ];
 
   return (
@@ -69,13 +70,19 @@ export function TotalView() {
         <>
           <View style={styles.grid}>
             {cards.map((k) => (
-              <Card key={k.label} style={[styles.card, { backgroundColor: k.bg }]}>
+              <Card key={k.label} style={[styles.card, { backgroundColor: c.elevation.level1 }]}>
                 <Card.Content>
-                  <Text variant="labelMedium">{k.label}</Text>
-                  <Text variant="titleLarge" style={k.neg && k.value < 0 ? { color: c.error } : undefined}>{m(k.value)}</Text>
+                  <Text variant="labelMedium" style={{ color: c.onSurfaceVariant }}>{k.label}</Text>
+                  <FitText size={22} style={styles.bold}>{m(k.value)}</FitText>
                 </Card.Content>
               </Card>
             ))}
+            <HeroCard style={styles.card}>
+              <Text variant="labelMedium" style={{ color: c.onHeroMuted }}>Restante</Text>
+              <FitText size={22} style={[styles.bold, { color: total.remaining < 0 ? c.heroError : c.heroAccent }]}>
+                {m(total.remaining)}
+              </FitText>
+            </HeroCard>
           </View>
 
           <Text variant="titleMedium" style={styles.title}>Por año</Text>

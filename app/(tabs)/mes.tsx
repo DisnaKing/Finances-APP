@@ -4,7 +4,6 @@ import {
   Button,
   Checkbox,
   Dialog,
-  FAB,
   HelperText,
   IconButton,
   List,
@@ -19,6 +18,7 @@ import { AmountField } from '@/src/components/AmountField';
 import { ConfirmDialog } from '@/src/components/ConfirmDialog';
 import { useMonth } from '@/src/components/MonthContext';
 import { MonthSelector } from '@/src/components/MonthSelector';
+import { AddExpenseFab } from '@/src/components/ui';
 import { useGuard } from '@/src/components/useGuard';
 import { useKeyboardHeight } from '@/src/components/useKeyboardHeight';
 import * as q from '@/src/db/queries';
@@ -261,7 +261,7 @@ export default function Mes() {
         {dlg?.t === 'bill' && <BillDialog bill={dlg.bill} month={month} onClose={close} onConfirm={confirm} />}
         {dlg?.t === 'confirm' && <ConfirmDialog msg={dlg.msg} ok={dlg.ok} onClose={close} />}
       </Portal>
-      <FAB icon="plus" accessibilityLabel="Añadir gasto" style={styles.fab} onPress={() => router.navigate('/gasto')} />
+      <AddExpenseFab />
     </View>
   );
 }
@@ -275,5 +275,4 @@ const styles = StyleSheet.create({
   rowEnd: { flexDirection: 'row', alignItems: 'center' },
   empty: { alignItems: 'center', paddingVertical: 8 },
   dlgBody: { paddingVertical: 8 },
-  fab: { position: 'absolute', right: 16, bottom: 16 },
 });

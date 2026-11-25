@@ -1,11 +1,12 @@
 import { useCallback, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Button, Card, Dialog, HelperText, List, Portal, ProgressBar, Text, TextInput, useTheme } from 'react-native-paper';
+import { Button, Dialog, HelperText, List, Portal, ProgressBar, Text, TextInput } from 'react-native-paper';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { AmountField } from '@/src/components/AmountField';
 import { ConfirmDialog } from '@/src/components/ConfirmDialog';
 import { ContribDialog } from '@/src/components/ContribDialog';
+import { HeroCard, HeroStat } from '@/src/components/ui';
 import { DateField, validDate } from '@/src/components/DateField';
 import { useGuard } from '@/src/components/useGuard';
 import { useKeyboardHeight } from '@/src/components/useKeyboardHeight';
@@ -13,6 +14,7 @@ import * as q from '@/src/db/queries';
 import { debtSchedule, debtStats, debtSummary, nper } from '@/src/lib/calc';
 import { centsToInput, formatMoney, formatPct, parseAmount } from '@/src/lib/money';
 import { currentMonth, formatDate, monthName, today } from '@/src/lib/month';
+import { useAppTheme } from '@/src/theme';
 
 /** "3,5" → 3.5 ; vacío = 0 ; no válido = null */
 const parseRate = (t: string) => {
@@ -135,7 +137,7 @@ function AmortDialog(p: { debt: q.Debt; paid: Record<string, number>; cur: strin
 
 export default function Deudas() {
   const db = useSQLiteContext();
-  const c = useTheme().colors;
+  const c = useAppTheme().colors;
   const [cur, setCur] = useState('€');
   const [debts, setDebts] = useState<q.Debt[]>([]);
   const [paid, setPaid] = useState<Paid>({});
@@ -175,21 +177,13 @@ export default function Deudas() {
     <View style={[styles.flex, { backgroundColor: c.background }]}>
       <ScrollView contentContainerStyle={styles.content}>
         {debts.length > 0 && (
-          <Card style={{ backgroundColor: c.primaryContainer }}>
-            <Card.Content>
-              <View style={styles.between}>
-                <View>
-                  <Text variant="labelMedium">Deuda total</Text>
-                  <Text variant="titleLarge">{m(sum.totalBalance)}</Text>
-                </View>
-                <View style={styles.end}>
-                  <Text variant="labelMedium">Pago mínimo total</Text>
-                  <Text variant="titleLarge">{m(sum.totalMin)}</Text>
-                </View>
-              </View>
-              <Text variant="bodyMedium" style={styles.free}>{free}</Text>
-            </Card.Content>
-          </Card>
+          <HeroCard>
+            <View style={styles.between}>
+              <HeroStat label="Deuda total" value={m(sum.totalBalance)} />
+              <HeroStat label="Pago mínimo total" value={m(sum.totalMin)} end />
+            </View>
+            <Text variant="bodyMedium" style={[styles.free, { color: c.onHero }]}>{free}</Text>
+          </HeroCard>
         )}
 
         <Text variant="titleMedium" style={styles.title}>Deudas</Text>
@@ -261,7 +255,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: { padding: 16, paddingBottom: 32 },
   title: { marginTop: 24 },
-  between: { flexDirection: 'row', justifyContent: 'space-between' },
+  between: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
   end: { alignItems: 'flex-end' },
   free: { marginTop: 8 },
   empty: { alignItems: 'center', paddingVertical: 8 },

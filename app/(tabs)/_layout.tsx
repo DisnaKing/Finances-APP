@@ -1,9 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Tabs, router } from 'expo-router';
-import { Menu, IconButton, useTheme } from 'react-native-paper';
+import { Menu, IconButton } from 'react-native-paper';
 import { useState } from 'react';
 import { View, type ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAppTheme } from '@/src/theme';
 
 type Icon = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 // Icono dentro de una "píldora" (indicador activo MD3).
@@ -14,7 +15,7 @@ const tab = (title: string, icon: Icon, activeBg: string, activeIcon: string) =>
       style={{
         width: 64,
         height: 32,
-        borderRadius: 16,
+        borderRadius: 14,
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: focused ? activeBg : 'transparent',
@@ -44,16 +45,18 @@ function HomeMenu() {
 }
 
 export default function TabsLayout() {
-  const { colors } = useTheme();
+  const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
-  const t = (title: string, icon: Icon) => tab(title, icon, colors.primaryContainer, colors.onPrimaryContainer);
+  const t = (title: string, icon: Icon) => tab(title, icon, colors.primary, colors.onPrimary);
   return (
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: colors.onSurface,
         tabBarInactiveTintColor: colors.onSurfaceVariant,
         tabBarStyle: {
-          backgroundColor: colors.elevation.level2,
+          backgroundColor: colors.navBar,
+          borderTopColor: colors.outlineVariant,
+          borderTopWidth: 1,
           height: 72 + insets.bottom,
           paddingBottom: insets.bottom + 8,
           paddingTop: 8,

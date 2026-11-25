@@ -1,12 +1,13 @@
 import { useCallback, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Button, Card, Dialog, FAB, HelperText, List, Portal, ProgressBar, Switch, Text, TextInput, useTheme } from 'react-native-paper';
+import { Button, Dialog, HelperText, List, Portal, ProgressBar, Switch, Text, TextInput, useTheme } from 'react-native-paper';
 import { router, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { AmountField } from '@/src/components/AmountField';
 import { DateField, validDate } from '@/src/components/DateField';
 import { ConfirmDialog } from '@/src/components/ConfirmDialog';
 import { ContribDialog } from '@/src/components/ContribDialog';
+import { AddExpenseFab, HeroCard, HeroStat } from '@/src/components/ui';
 import { useGuard } from '@/src/components/useGuard';
 import { useKeyboardHeight } from '@/src/components/useKeyboardHeight';
 import * as q from '@/src/db/queries';
@@ -153,18 +154,10 @@ export default function Ahorro() {
   return (
     <View style={[styles.flex, { backgroundColor: c.background }]}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Card style={{ backgroundColor: c.primaryContainer }}>
-          <Card.Content style={styles.between}>
-            <View>
-              <Text variant="labelMedium">Total ahorrado</Text>
-              <Text variant="titleLarge">{m(saved)}</Text>
-            </View>
-            <View style={styles.end}>
-              <Text variant="labelMedium">Falta total</Text>
-              <Text variant="titleLarge">{m(left)}</Text>
-            </View>
-          </Card.Content>
-        </Card>
+        <HeroCard style={styles.between}>
+          <HeroStat label="Total ahorrado" value={m(saved)} />
+          <HeroStat label="Falta total" value={m(left)} end />
+        </HeroCard>
 
         <Text variant="titleMedium" style={styles.title}>Metas</Text>
         {goals.length === 0 && (
@@ -232,7 +225,7 @@ export default function Ahorro() {
           />
         )}
       </Portal>
-      <FAB icon="plus" accessibilityLabel="Añadir gasto" style={styles.fab} onPress={() => router.navigate('/gasto')} />
+      <AddExpenseFab />
     </View>
   );
 }
@@ -241,11 +234,10 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: { padding: 16, paddingBottom: 96 },
   title: { marginTop: 24 },
-  between: { flexDirection: 'row', justifyContent: 'space-between' },
+  between: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
   end: { alignItems: 'flex-end' },
   empty: { alignItems: 'center', paddingVertical: 8 },
   bar: { height: 8, borderRadius: 4, marginVertical: 4 },
   amt: { alignSelf: 'center' },
   switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 8 },
-  fab: { position: 'absolute', right: 16, bottom: 16 },
 });

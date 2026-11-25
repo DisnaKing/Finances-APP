@@ -54,20 +54,20 @@ Todo lo demás (totales, restante, progreso, NPER, amortización, rendimiento) e
 - **Exportar**: CSV/JSON con la hoja de compartir del sistema, que sirve de copia de seguridad.
 - Sin login ni sincronización en la nube en la v1 (se añade cuando haga falta un segundo dispositivo).
 
-## 4b. Estilo: Material 3 "naturaleza"
-- **Base**: Material Design 3 con **react-native-paper** (componentes M3 ya hechos: tarjetas, FAB, barra de navegación, diálogos). Sin sistema de diseño propio.
+## 4b. Estilo: "Medianoche"
+- **Base**: Material Design 3 con **react-native-paper**. Componentes compartidos mínimos en `src/components/ui.tsx` (tarjeta protagonista, barras, FAB).
 - **Tema claro y oscuro**: sigue el tema del sistema.
 - **Paleta** (un solo `theme.ts` con los dos esquemas de Paper):
 
-| Rol M3 | Claro | Oscuro | Uso |
+| Color | Claro | Oscuro | Uso |
 |---|---|---|---|
-| primary (bosque) | `#3E6B37` | `#A8D29A` | FAB, acciones, Necesidades |
-| primaryContainer (hoja) | `#C5E8B7` | `#264F22` | Tarjeta de "Restante", pestaña activa |
-| secondary (corteza) | `#8A6440` | `#D9B48C` | Deseos, iconos secundarios |
-| secondaryContainer (arena) | `#F0E2D2` | `#4A3826` | Tarjetas de gastado y de ahorro |
-| tertiary (musgo) | `#5B7F4A` | `#8FB97E` | Ahorros, inversión |
-| background / surface (lino) | `#F8F5EE` | `#1A1C17` | Fondo |
-| error | `#BA1A1A` | `#FFB4AB` | Pasarse del presupuesto, saldo negativo |
+| primary (menta) | `#00805F` | `#3DE0A8` | FAB, acciones, pestaña activa, barras |
+| tertiary (azul) | `#2F62B8` | `#8AB4FF` | Segunda serie del gráfico anual |
+| background / surface | `#F2F5F7` | `#0A1017` | Fondo |
+| tarjeta (elevation.level1) | `#FFFFFF` | `#131C26` | Tarjetas |
+| hero | `#0B1520` | `#162330` | Cifra protagonista ("Restante", resúmenes) |
+| heroAccent | `#3DE0A8` | `#3DE0A8` | Cifra positiva dentro de la tarjeta hero |
+| error | `#C4261D` | `#FF8A80` | Saldo negativo, pérdidas |
 
 - **Navegación inferior** (5 pestañas): Inicio · Mes · Ahorro · Inversión · Totales (subpestañas Anual | Total). Deudas y Ajustes se abren desde el menú de Inicio.
 - **FAB "+"** fijo en todas las pestañas para añadir un gasto.

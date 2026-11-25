@@ -1,6 +1,6 @@
-import { router } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
-import { FAB, Text, useTheme } from 'react-native-paper';
+import { Text, useTheme } from 'react-native-paper';
+import { AddExpenseFab } from '@/src/components/ui';
 
 /** Pantalla provisional con FAB "+" hacia /gasto (fase 0). */
 export function Placeholder({ fab = true }: { fab?: boolean }) {
@@ -10,12 +10,11 @@ export function Placeholder({ fab = true }: { fab?: boolean }) {
       <Text variant="titleMedium" style={{ color: colors.onSurfaceVariant }}>
         Próximamente
       </Text>
-      {fab && <FAB icon="plus" style={styles.fab} onPress={() => router.navigate('/gasto')} />}
+      {fab && <AddExpenseFab />}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  fab: { position: 'absolute', right: 16, bottom: 16 },
 });
